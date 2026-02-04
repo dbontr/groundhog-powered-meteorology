@@ -18,32 +18,6 @@ const ALGORITHMS = [
   { id: "exp_decay", label: "Exponentially-decayed accuracy" }
 ];
 
-const NOAA_FALLBACK = {
-  source: "NOAA Heritage: Grading Groundhogs",
-  period: "2005-2024",
-  groundhogs: [
-    { name: "Staten Island Chuck", accuracy: 85.0 },
-    { name: "General Beauregard Lee", accuracy: 80.0 },
-    { name: "Lander Lil", accuracy: 75.0 },
-    { name: "Concord Charlie", accuracy: 65.0 },
-    { name: "Gertie the Groundhog", accuracy: 65.0 },
-    { name: "Jimmy the Groundhog", accuracy: 60.0 },
-    { name: "Woodstock Willie", accuracy: 60.0 },
-    { name: "Buckeye Chuck", accuracy: 55.0 },
-    { name: "French Creek Freddie", accuracy: 55.0 },
-    { name: "Malverne Mel", accuracy: 55.0 },
-    { name: "Octoraro Orphie", accuracy: 52.63 },
-    { name: "Dunkirk Dave", accuracy: 50.0 },
-    { name: "Holtsville Hal", accuracy: 50.0 },
-    { name: "Poor Richard", accuracy: 50.0 },
-    { name: "Uni the Groundhog", accuracy: 47.37 },
-    { name: "Schnogadahl Sammi", accuracy: 38.89 },
-    { name: "Punxsutawney Phil", accuracy: 35.0 },
-    { name: "Woody the Woodchuck", accuracy: 35.0 },
-    { name: "Mojave Max", accuracy: 25.0 }
-  ]
-};
-
 async function loadJson(url) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} (${url})`);
@@ -120,36 +94,112 @@ function computeNowcast(predByYear, outcomes, algoResult) {
   let earlyWeight = 0;
   let totalWeight = 0;
   let used = 0;
+  let usedWeighted = false;
 
   for (const p of preds) {
     const w = weights.get(p.groundhogSlug);
     if (!w) continue;
     used++;
     totalWeight += w;
+    usedWeighted = true;
     const predOut = predictionToOutcome(!!p.shadow);
     if (predOut === "EARLY_SPRING") earlyWeight += w;
+  }
+
+  if (!totalWeight && preds.length) {
+    // Fallback: simple majority vote when weights are unavailable.
+    used = preds.length;
+    totalWeight = preds.length;
+    earlyWeight = preds.reduce((acc, p) => {
+      const predOut = predictionToOutcome(!!p.shadow);
+      return acc + (predOut === "EARLY_SPRING" ? 1 : 0);
+    }, 0);
   }
 
   const pEarly = totalWeight ? earlyWeight / totalWeight : 0.5;
   const pred = pEarly >= 0.5 ? "EARLY_SPRING" : "LONG_WINTER";
   const certainty = totalWeight ? Math.max(pEarly, 1 - pEarly) : Number.NaN;
 
-  return { latestYear, pred, certainty, used, totalWeight };
+  return { latestYear, pred, certainty, used, totalWeight, usedWeighted };
 }
 
-function renderLeaderboard(data) {
+function computeLeaderboard(predByYear, outcomes, groundhogDir) {
+  const nameBySlug = new Map();
+  for (const g of (groundhogDir?.groundhogs ?? [])) {
+    if (g?.slug) nameBySlug.set(g.slug, g.name || g.slug);
+  }
+  for (const preds of predByYear.values()) {
+    for (const p of preds) {
+      if (!p?.groundhogSlug) continue;
+      if (!nameBySlug.has(p.groundhogSlug) && p.groundhogName) {
+        nameBySlug.set(p.groundhogSlug, p.groundhogName);
+      }
+    }
+  }
+
+  const stats = new Map();
+  for (const [year, preds] of predByYear) {
+    const actual = outcomes.get(`${TARGET}:${year}`);
+    if (!actual) continue;
+    for (const p of preds) {
+      const slug = p.groundhogSlug;
+      if (!slug) continue;
+      if (!stats.has(slug)) stats.set(slug, { n: 0, k: 0 });
+      const s = stats.get(slug);
+      s.n += 1;
+      const predOut = predictionToOutcome(!!p.shadow);
+      if (predOut === actual) s.k += 1;
+    }
+  }
+
+  const rows = Array.from(stats.entries()).map(([slug, s]) => ({
+    slug,
+    name: nameBySlug.get(slug) ?? slug,
+    n: s.n,
+    k: s.k,
+    accuracy: s.n ? s.k / s.n : Number.NaN
+  }));
+
+  rows.sort((a, b) => {
+    if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
+    if (b.n !== a.n) return b.n - a.n;
+    return a.name.localeCompare(b.name);
+  });
+
+  return rows;
+}
+
+function renderLeaderboard(rows) {
   const table = $("leaderboard");
   if (!table) return;
-  const groundhogs = Array.isArray(data?.groundhogs) ? [...data.groundhogs] : [];
-  groundhogs.sort((a, b) => b.accuracy - a.accuracy);
 
-  const rows = groundhogs.map((g, idx) => {
-    const accuracy = Number.isFinite(g.accuracy) ? g.accuracy : Number.NaN;
+  if (!rows.length) {
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th class="rank">Rank</th>
+          <th>Groundhog</th>
+          <th>Accuracy</th>
+          <th>Obs</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td colspan="4">No scored groundhog predictions yet.</td>
+        </tr>
+      </tbody>
+    `;
+    return;
+  }
+
+  const body = rows.map((g, idx) => {
+    const accuracy = Number.isFinite(g.accuracy) ? g.accuracy * 100 : Number.NaN;
     return `
       <tr>
         <td class="rank">${String(idx + 1).padStart(2, "0")}</td>
         <td>${g.name}</td>
-        <td class="accuracy">${fmtPctValue(accuracy, 2)}</td>
+        <td class="accuracy">${fmtPctValue(accuracy, 1)}</td>
+        <td>${g.n}</td>
       </tr>
     `;
   }).join("");
@@ -160,10 +210,11 @@ function renderLeaderboard(data) {
         <th class="rank">Rank</th>
         <th>Groundhog</th>
         <th>Accuracy</th>
+        <th>Obs</th>
       </tr>
     </thead>
     <tbody>
-      ${rows}
+      ${body}
     </tbody>
   `;
 }
@@ -172,26 +223,31 @@ async function run() {
   try {
     setStatus("Loading data...");
 
-    const [predObj, outcomesText] = await Promise.all([
+    const [predObj, outcomesText, groundhogDir] = await Promise.all([
       loadJson("./data/predictions.json"),
-      loadText("./data/outcomes.csv")
+      loadText("./data/outcomes.csv"),
+      loadJson("./data/groundhogs.json")
     ]);
-
-    let noaaObj = null;
-    try {
-      noaaObj = await loadJson("./data/noaa_groundhogs.json");
-    } catch (err) {
-      noaaObj = NOAA_FALLBACK;
-    }
-
-    if (noaaObj?.period) {
-      $("leaderboardMeta").textContent = `NOAA Heritage accuracy list (${noaaObj.period}).`;
-    }
-    renderLeaderboard(noaaObj);
 
     const outcomesRows = parseCSV(outcomesText);
     const outcomes = indexOutcomes(outcomesRows);
     const predByYear = indexPredictions(predObj);
+
+    const leaderboardRows = computeLeaderboard(predByYear, outcomes, groundhogDir);
+    renderLeaderboard(leaderboardRows);
+
+    const scoredYears = Array.from(predByYear.keys()).filter((y) => outcomes.has(`${TARGET}:${y}`));
+    const minYear = scoredYears.length ? Math.min(...scoredYears) : null;
+    const maxYear = scoredYears.length ? Math.max(...scoredYears) : null;
+    const leaderboardMeta = scoredYears.length
+      ? `Computed from groundhog-day.com predictions vs NOAA CAG outcomes. Scored years: ${minYear}–${maxYear}.`
+      : "Computed from groundhog-day.com predictions vs NOAA CAG outcomes.";
+    $("leaderboardMeta").textContent = leaderboardMeta;
+
+    const isSample = String(predObj.updatedAt || "").includes("SAMPLE");
+    if (isSample) {
+      setStatus("Sample data loaded — run npm run update:predictions for the full leaderboard.");
+    }
 
     const results = evaluateAlgorithms(predByYear, outcomes);
     let best = pickBestAlgorithm(results);
@@ -232,9 +288,11 @@ async function run() {
     $("voterCount").textContent = `${nowcast.used}`;
     $("meta").textContent = usedFallback
       ? "Backtest unavailable — showing default algorithm."
-      : "Prediction uses the highest-accuracy algorithm from the backtest set.";
+      : (nowcast.usedWeighted
+        ? "Prediction uses the highest-accuracy algorithm from the backtest set."
+        : "Backtest available, but weights missing — using simple majority vote.");
 
-    setStatus("");
+    if (!isSample) setStatus("");
   } catch (err) {
     console.error(err);
     setStatus(String(err));

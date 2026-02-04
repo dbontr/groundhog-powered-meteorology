@@ -20,11 +20,11 @@ const WINTER_THRESHOLD_F = Number.parseFloat(process.env.WINTER_THRESHOLD_F ?? "
 
 // NOAA Climate-at-a-Glance “CSV-style” URLs are widely used in coursework/tutorials.
 // If NOAA changes the URL format, adjust `urlFor(month)` below.
-function urlFor(month) {
-  // 110 = contiguous U.S. (CONUS) in many CAG endpoints.
+function urlFor(month, endYear) {
+  // 110 = contiguous U.S. (CONUS) in CAG endpoints.
   // parameter = tavg (average temperature), timeScale = 1 (monthly), month = {2,3}.
   // base_prd=true with 1901–2000 baseline yields anomalies relative to that base period.
-  return `https://www.ncdc.noaa.gov/cag/national/time-series/110-tavg-1-${month}-1895-${END_YEAR}.csv?base_prd=true&begbaseyear=1901&endbaseyear=2000`;
+  return `https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/national/time-series/110/tavg/1/${month}/1895-${endYear}/data.csv?base_prd=true&begbaseyear=1901&endbaseyear=2000`;
 }
 
 async function fetchText(url) {
@@ -34,12 +34,20 @@ async function fetchText(url) {
 }
 
 function parseCagCsv(text) {
-  // Robust-ish: skip non-data lines; accept rows like "1895, -0.12"
+  // Robust-ish: skip headers/comments; accept "Date,Value,Anomaly" or "YYYYMM, value, anomaly".
   const rows = new Map();
   for (const line of text.split(/\r?\n/)) {
-    const m = line.match(/^\s*(\d{4})\s*,\s*(-?\d+(\.\d+)?)/);
-    if (!m) continue;
-    rows.set(+m[1], +m[2]);
+    const l = line.trim();
+    if (!l || l.startsWith("#")) continue;
+    const parts = l.split(",").map(s => s.trim());
+    if (!parts.length || parts[0].toLowerCase() === "date") continue;
+    const dateStr = parts[0];
+    if (!/^\d{4}/.test(dateStr)) continue;
+    const year = Number.parseInt(dateStr.slice(0, 4), 10);
+    const valStr = (parts.length >= 3 && parts[2]) ? parts[2] : parts[1];
+    const val = Number.parseFloat(valStr);
+    if (!Number.isFinite(val)) continue;
+    rows.set(year, val);
   }
   return rows;
 }
@@ -60,10 +68,27 @@ function winterBucketFromMean(meanAnom) {
 async function main() {
   await fs.mkdir(OUT_DIR, { recursive: true });
 
-  console.log("Fetching NOAA CAG Feb anomalies…");
-  const febText = await fetchText(urlFor(2));
-  console.log("Fetching NOAA CAG Mar anomalies…");
-  const marText = await fetchText(urlFor(3));
+  let endYear = END_YEAR;
+  let febText = null;
+  let marText = null;
+  while (endYear >= 1895) {
+    try {
+      console.log(`Fetching NOAA CAG Feb anomalies (end year ${endYear})…`);
+      febText = await fetchText(urlFor(2, endYear));
+      console.log(`Fetching NOAA CAG Mar anomalies (end year ${endYear})…`);
+      marText = await fetchText(urlFor(3, endYear));
+      break;
+    } catch (e) {
+      if (String(e).includes("404")) {
+        endYear -= 1;
+        continue;
+      }
+      throw e;
+    }
+  }
+  if (!febText || !marText) {
+    throw new Error("Could not resolve a valid NOAA CAG endpoint.");
+  }
 
   const feb = parseCagCsv(febText);
   const mar = parseCagCsv(marText);
@@ -74,7 +99,7 @@ async function main() {
   lines.push(`# winter_bucket (only when outcome=LONG_WINTER) = EARLY_WINTER if mean_anom <= -${WINTER_THRESHOLD_F}F else NORMAL_WINTER`);
   lines.push("year,target,feb_anom,mar_anom,mean_anom,outcome,winter_bucket");
 
-  for (let y = START_YEAR; y <= END_YEAR; y++) {
+  for (let y = START_YEAR; y <= endYear; y++) {
     const fa = feb.get(y);
     const ma = mar.get(y);
     const mean = (Number.isFinite(fa) && Number.isFinite(ma)) ? (fa + ma) / 2 : NaN;
