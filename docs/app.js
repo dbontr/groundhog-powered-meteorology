@@ -1,4 +1,4 @@
-import { parseCSV } from "./lib/stats.js";
+import { parseCSV, wilsonCI } from "./lib/stats.js";
 import { indexOutcomes, indexPredictions, trainWeights, predictionToOutcome } from "./lib/backtest.js";
 
 const $ = (id) => document.getElementById(id);
@@ -18,7 +18,9 @@ const ALGORITHMS = [
   { id: "smooth_acc", label: "Smoothed accuracy" },
   { id: "exp_decay", label: "Exponentially-decayed accuracy" },
   { id: "logit", label: "Logit weighting (flips contrarians)" },
-  { id: "logit_decay", label: "Logit weighting + decay" }
+  { id: "logit_decay", label: "Logit weighting + decay" },
+  { id: "wilson", label: "Wilson confidence weighting" },
+  { id: "wilson_decay", label: "Wilson weighting + decay" }
 ];
 
 const TOP_N_CHOICES = [5, 10, 20];
@@ -61,6 +63,32 @@ function majorityVote(preds, allowed = null) {
   for (const p of preds) {
     if (allowed && !allowed.has(p.groundhogSlug)) continue;
     const out = predictionToOutcome(!!p.shadow);
+    if (out === "EARLY_SPRING") early += 1;
+    else late += 1;
+  }
+  const used = early + late;
+  if (!used) return { pred: "", certainty: Number.NaN, used };
+  const pred = early >= late ? "EARLY_SPRING" : "LONG_WINTER";
+  const certainty = Math.max(early, late) / used;
+  return { pred, certainty, used };
+}
+
+function majorityVoteWithFlips(preds, stats, minObs) {
+  let early = 0;
+  let late = 0;
+  for (const p of preds) {
+    const slug = p.groundhogSlug;
+    const baseOut = predictionToOutcome(!!p.shadow);
+    let out = baseOut;
+
+    const s = stats?.get(slug);
+    if (s && s.n >= minObs) {
+      const ci = wilsonCI(s.k, s.n);
+      if (ci.hi < 0.5) {
+        out = (baseOut === "EARLY_SPRING") ? "LONG_WINTER" : "EARLY_SPRING";
+      }
+    }
+
     if (out === "EARLY_SPRING") early += 1;
     else late += 1;
   }
@@ -185,6 +213,15 @@ function predictForYear(predByYear, outcomes, year, mode, method, topN) {
     return { ...fallback, totalPreds, usedWeighted: false };
   }
 
+  if (mode === "flip_majority") {
+    const res = majorityVoteWithFlips(preds, stats, MIN_OBS);
+    if (!res.used) {
+      const fallback = majorityVote(preds);
+      return { ...fallback, totalPreds, usedWeighted: false };
+    }
+    return { ...res, totalPreds, usedWeighted: false };
+  }
+
   const fallback = majorityVote(preds);
   return { ...fallback, totalPreds, usedWeighted: false };
 }
@@ -271,6 +308,17 @@ function pickBestOverall(predByYear, outcomes) {
       topN: 1,
       label: `Best single groundhog (${bestSingle.algo.label})`,
       backtest: bestSingle
+    });
+  }
+
+  const flipMajority = backtestMode(predByYear, outcomes, "flip_majority", "bayes", null);
+  if (Number.isFinite(flipMajority.accuracy)) {
+    candidates.push({
+      mode: "flip_majority",
+      method: "bayes",
+      topN: null,
+      label: "Flip contrarians (Wilson filter)",
+      backtest: flipMajority
     });
   }
 

@@ -88,7 +88,7 @@ export function trainWeights(predByYear, outcomes, target, yearExclusive, method
   const weights = new Map();
   const stats = new Map();
 
-  const usesDecay = (method === "exp_decay" || method === "logit_decay");
+  const usesDecay = (method === "exp_decay" || method === "logit_decay" || method === "wilson_decay");
   const counts = usesDecay ? countsDecayed : countsRaw;
 
   for (const [slug, c] of counts) {
@@ -100,7 +100,7 @@ export function trainWeights(predByYear, outcomes, target, yearExclusive, method
     if (nRaw < minObs) continue;
 
     let pHat;
-    if (method === "bayes" || method === "exp_decay" || method === "logit" || method === "logit_decay") {
+    if (method === "bayes" || method === "exp_decay" || method === "logit" || method === "logit_decay" || method === "wilson" || method === "wilson_decay") {
       pHat = (k + a0) / (n + a0 + b0);
     } else { // smoothed accuracy
       pHat = (k + 1) / (n + 2);
@@ -114,6 +114,11 @@ export function trainWeights(predByYear, outcomes, target, yearExclusive, method
       // Signed weight: contrarian groundhogs (p < 0.5) get negative weight.
       const logit = Math.log(pClamped / (1 - pClamped));
       w = logit * alpha * boost;
+    } else if (method === "wilson" || method === "wilson_decay") {
+      const ci = wilsonCI(k, n);
+      const signal = ci.center - 0.5;
+      const confidence = Math.max(0, 1 - (ci.half / 0.5));
+      w = signal * confidence * alpha * boost;
     } else {
       w = Math.pow(pClamped, alpha) * boost;
     }
