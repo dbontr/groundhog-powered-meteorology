@@ -1,9 +1,22 @@
 import { parseCSV } from "./lib/stats.js";
-import { indexOutcomes, indexPredictions, runBacktest, trainWeights, computeDAE, predictionToOutcome, normalizeOutcome } from "./lib/backtest.js";
+import { indexOutcomes, indexPredictions, runBacktest, trainWeights, predictionToOutcome } from "./lib/backtest.js";
 
 const $ = (id) => document.getElementById(id);
 
-let chart;
+const TARGET = "US_CONUS_FEBMAR_MEAN_ANOM";
+const DEFAULT_OPTS = {
+  minObs: 5,
+  betaPrior: [2, 2],
+  halfLifeYears: 10,
+  alpha: 2.0,
+  gamma: 0.5
+};
+
+const ALGORITHMS = [
+  { id: "bayes", label: "Bayesian mean + sample boost" },
+  { id: "smooth_acc", label: "Smoothed accuracy" },
+  { id: "exp_decay", label: "Exponentially-decayed accuracy" }
+];
 
 async function loadJson(url) {
   const res = await fetch(url, { cache: "no-store" });
@@ -17,233 +30,167 @@ async function loadText(url) {
   return await res.text();
 }
 
-function fmtPct(x) {
-  if (!Number.isFinite(x)) return "–";
-  return `${(100 * x).toFixed(1)}%`;
+function fmtPct(x, digits = 1) {
+  if (!Number.isFinite(x)) return "—";
+  return `${(100 * x).toFixed(digits)}%`;
 }
 
-function outcomeEmoji(out) {
-  if (out === "EARLY_SPRING") return "🌱";
-  if (out === "LONG_WINTER") return "❄️";
-  return "…";
+function fmtPctValue(x, digits = 1) {
+  if (!Number.isFinite(x)) return "—";
+  return `${x.toFixed(digits)}%`;
 }
 
-function outcomeEmoji3(out) {
-  if (out === "EARLY_SPRING") return "🌱";
-  if (out === "EARLY_WINTER") return "🥶";
-  if (out === "NORMAL_WINTER") return "❄️";
-  return "…";
-}
-
-function setStatus(msg, kind="") {
+function setStatus(msg) {
   const el = $("status");
-  el.textContent = msg;
-  el.style.color = kind === "warn" ? "var(--warn)" : (kind === "bad" ? "var(--bad)" : "var(--muted)");
+  if (el) el.textContent = msg;
 }
 
-function getCfg() {
-  const method = $("weightMethod").value;
-
-  const beta = $("betaPrior").value.split(",").map(s => +s.trim()).filter(Number.isFinite);
-  const betaPrior = beta.length === 2 ? beta : [2,2];
-
-  const halfLifeYears = +$("halfLife").value || 10;
-
-  return {
-    method,
-    target: $("target").value,
-    opts: {
-      minObs: +$("minObs").value || 0,
-      betaPrior,
-      halfLifeYears,
-      alpha: 2.0,
-      gamma: 0.5
-    },
-    dae: {
-      minBacktestYears: +$("minBacktestYears").value || 10,
-      maxCIHalfWidth: +$("maxCI").value || 0.10,
-      minGroundhogs: +$("minGroundhogs").value || 8,
-      minObsPerGroundhog: +$("minObs").value || 0
-    }
-  };
+function outcomeLabel(outcome) {
+  return outcome === "EARLY_SPRING" ? "EARLY SPRING" : "LATE WINTER";
 }
 
-function summarizeTopWeights(weights, groundhogDir, n=12) {
-  const nameBySlug = new Map((groundhogDir?.groundhogs ?? []).map(g => [g.slug, g.name || g.slug]));
-  const arr = Array.from(weights.entries())
-    .sort((a,b)=>b[1]-a[1])
-    .slice(0,n)
-    .map(([slug, w], i) => {
-      const nm = nameBySlug.get(slug) ?? slug;
-      return `${String(i+1).padStart(2," ")}  ${nm}  (${slug})  w=${w.toFixed(4)}`;
-    });
-  return arr.join("\n");
-}
-
-function renderChart(rows) {
-  const pts = rows.filter(r => Number.isFinite(r.cumAcc)).map(r => ({ x: r.year, y: r.cumAcc }));
-  const lo = rows.filter(r => r.ci && Number.isFinite(r.ci.lo)).map(r => ({ x: r.year, y: r.ci.lo }));
-  const hi = rows.filter(r => r.ci && Number.isFinite(r.ci.hi)).map(r => ({ x: r.year, y: r.ci.hi }));
-
-  const ctx = $("chartAccuracy").getContext("2d");
-  if (chart) chart.destroy();
-
-  chart = new Chart(ctx, {
-    type: "line",
-    data: {
-      datasets: [
-        { label: "Cumulative accuracy", data: pts, parsing: false, tension: 0.2, pointRadius: 0 },
-        { label: "Wilson 95% CI (low)", data: lo, parsing: false, tension: 0.2, pointRadius: 0 },
-        { label: "Wilson 95% CI (high)", data: hi, parsing: false, tension: 0.2, pointRadius: 0 },
-      ]
-    },
-    options: {
-      responsive: true,
-      scales: {
-        x: { type: "linear", ticks: { precision: 0 } },
-        y: { min: 0, max: 1 }
-      },
-      plugins: {
-        legend: { labels: { color: "#e6eaf0" } }
+function evaluateAlgorithms(predByYear, outcomes) {
+  return ALGORITHMS.map((algo, index) => {
+    const rows = runBacktest(predByYear, outcomes, TARGET, algo.id, DEFAULT_OPTS);
+    let last = null;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (Number.isFinite(rows[i].cumAcc)) {
+        last = rows[i];
+        break;
       }
     }
+    if (!last && rows.length) last = rows[rows.length - 1];
+    return {
+      algo,
+      rows,
+      last,
+      accuracy: last?.cumAcc ?? Number.NaN,
+      backtestN: last?.cumN ?? 0,
+      lastYear: last?.year ?? null,
+      order: index
+    };
   });
 }
 
-function computeSinceDAE(rows, daeYear) {
-  if (!daeYear) return null;
-  const subset = rows.filter(r => r.year >= daeYear && r.correct !== null);
-  if (!subset.length) return null;
-  const k = subset.filter(r => r.correct).length;
-  const n = subset.length;
-  return { k, n, acc: k/n };
+function pickBestAlgorithm(results) {
+  const viable = results.filter((r) => Number.isFinite(r.accuracy));
+  if (!viable.length) return null;
+  viable.sort((a, b) => {
+    if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
+    if (b.backtestN !== a.backtestN) return b.backtestN - a.backtestN;
+    return a.order - b.order;
+  });
+  return viable[0];
 }
 
-async function run() {
-  setStatus("Loading data…");
-  $("nowcast").textContent = "";
-  $("sinceDae").textContent = "";
-  $("severity").textContent = "";
+function computeNowcast(predByYear, outcomes, algoResult) {
+  const years = Array.from(predByYear.keys());
+  if (!years.length) return null;
+  const latestYear = Math.max(...years);
+  const { weights } = trainWeights(predByYear, outcomes, TARGET, latestYear, algoResult.algo.id, DEFAULT_OPTS);
 
-  // Load cached data (generated by scripts or seeded samples)
-  const [predObj, ghObj, outcomesText] = await Promise.all([
-    loadJson("./data/predictions.json"),
-    loadJson("./data/groundhogs.json"),
-    loadText("./data/outcomes.csv")
-  ]);
-
-  const outcomesRows = parseCSV(outcomesText);
-  const outcomes = indexOutcomes(outcomesRows);
-  const predByYear = indexPredictions(predObj);
-
-  // If outcomes.csv includes the winter_bucket rule comment, extract the threshold for display.
-  const thrMatch = outcomesText.match(/mean_anom\s*<=\s*-([0-9.]+)F/i);
-  const winterThr = thrMatch ? Number.parseFloat(thrMatch[1]) : null;
-
-  $("dataDump").textContent = JSON.stringify({
-    predictionsUpdatedAt: predObj.updatedAt,
-    groundhogsUpdatedAt: ghObj.updatedAt,
-    outcomesRows: outcomesRows.length,
-    outcomesHasWinterBucket: outcomesRows.some(r => (r.winter_bucket ?? "").trim().length)
-  }, null, 2);
-
-  const cfg = getCfg();
-
-  // Backtest
-  setStatus("Running backtest…");
-  const rows = runBacktest(predByYear, outcomes, cfg.target, cfg.method, cfg.opts);
-
-  if (!rows.length) {
-    setStatus("No backtest rows. You probably need outcomes for the selected target.", "warn");
-    $("notes").textContent = "Tip: run `npm run update:predictions` and fill `docs/data/outcomes.csv` (or run the NOAA helper).";
-    return;
-  }
-
-  // DAE
-  const daeYear = computeDAE(rows, cfg.dae);
-
-  // “Nowcast” = latest year that has predictions (may not have outcome yet)
-  const latestYear = Math.max(...Array.from(predByYear.keys()));
-  const { weights } = trainWeights(predByYear, outcomes, cfg.target, latestYear, cfg.method, cfg.opts);
-
-  const latestPreds = predByYear.get(latestYear) ?? [];
-  // Use ensemble only if some weighted groundhogs are present that year
-  let nowcast = "";
+  const preds = predByYear.get(latestYear) ?? [];
+  let earlyWeight = 0;
+  let totalWeight = 0;
   let used = 0;
-  let score = 0;
-  for (const p of latestPreds) {
+
+  for (const p of preds) {
     const w = weights.get(p.groundhogSlug);
     if (!w) continue;
     used++;
-    const out = predictionToOutcome(!!p.shadow);
-    score += w * (out === "EARLY_SPRING" ? 1 : -1);
+    totalWeight += w;
+    const predOut = predictionToOutcome(!!p.shadow);
+    if (predOut === "EARLY_SPRING") earlyWeight += w;
   }
-  if (used) nowcast = score >= 0 ? "EARLY_SPRING" : "LONG_WINTER";
 
-  const lastRow = rows.findLast(r => r.cumAcc !== undefined) ?? rows[rows.length - 1];
+  const pEarly = totalWeight ? earlyWeight / totalWeight : 0.5;
+  const pred = pEarly >= 0.5 ? "EARLY_SPRING" : "LONG_WINTER";
+  const certainty = totalWeight ? Math.max(pEarly, 1 - pEarly) : Number.NaN;
 
-  // Render
-  renderChart(rows);
+  return { latestYear, pred, certainty, used, totalWeight };
+}
 
-  const since = computeSinceDAE(rows, daeYear);
-  const daeText = daeYear ? `DAE = ${daeYear}` : "DAE not reached yet (tighten/loosen thresholds?)";
+function renderLeaderboard(data) {
+  const table = $("leaderboard");
+  if (!table) return;
+  const groundhogs = Array.isArray(data?.groundhogs) ? [...data.groundhogs] : [];
+  groundhogs.sort((a, b) => b.accuracy - a.accuracy);
 
-  $("nowcast").innerHTML = `
-    <div>Latest prediction year in dataset: <b>${latestYear}</b></div>
-    <div>Ensemble vote: <b>${outcomeEmoji(nowcast)} ${nowcast || "N/A"}</b> (weighted voters: ${used})</div>
-    <div>Backtest cumulative accuracy (through ${lastRow.year}): <b>${fmtPct(lastRow.cumAcc)}</b> (n=${lastRow.cumN})</div>
-    <div>${daeText}</div>
+  const rows = groundhogs.map((g, idx) => {
+    const accuracy = Number.isFinite(g.accuracy) ? g.accuracy : Number.NaN;
+    return `
+      <tr>
+        <td class="rank">${String(idx + 1).padStart(2, "0")}</td>
+        <td>${g.name}</td>
+        <td class="accuracy">${fmtPctValue(accuracy)}</td>
+      </tr>
+    `;
+  }).join("");
+
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th class="rank">Rank</th>
+        <th>Groundhog</th>
+        <th>Accuracy</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows}
+    </tbody>
   `;
-
-  // Winter intensity breakdown (still ONLY 2 outcomes for scoring)
-  const relevant = outcomesRows.filter(r => String(r.target).trim() === cfg.target);
-  const longWinterRows = relevant.filter(r => normalizeOutcome(r.outcome) === "LONG_WINTER");
-  const earlyWinter = longWinterRows.filter(r => String(r.winter_bucket ?? "").trim().toUpperCase() === "EARLY_WINTER").length;
-  const normalWinter = longWinterRows.filter(r => {
-    const wb = String(r.winter_bucket ?? "").trim().toUpperCase();
-    return wb === "NORMAL_WINTER" || wb === "";
-  }).length;
-  const thrText = (winterThr !== null && Number.isFinite(winterThr)) ? ` (EARLY_WINTER if mean_anom <= -${winterThr}°F)` : "";
-  if (longWinterRows.length) {
-    $("severity").textContent = `Winter intensity${thrText}: EARLY_WINTER=${earlyWinter}, NORMAL_WINTER=${normalWinter}. (Scoring outcomes remain binary: EARLY_SPRING vs LONG_WINTER.)`;
-  } else {
-    $("severity").textContent = `Winter intensity${thrText}: no LONG_WINTER rows found for this target.`;
-  }
-
-  if (since) {
-    $("sinceDae").textContent = `Since ${daeYear}, ensemble accuracy: ${fmtPct(since.acc)} (n=${since.n}).`;
-  } else if (daeYear) {
-    $("sinceDae").textContent = `Since ${daeYear}, there are no scored years yet (outcomes missing).`;
-  } else {
-    $("sinceDae").textContent = "Once DAE is reached, you can truthfully claim “Since YEAR, we’ve been X% accurate.”";
-  }
-
-
-
-  $("topGroundhogs").textContent = summarizeTopWeights(weights, ghObj, 15);
-
-  // Notes
-  const isSample = String(predObj.updatedAt || "").includes("SAMPLE");
-  $("notes").textContent = isSample
-    ? "You are viewing sample data. Run `npm run update:predictions` (and optionally outcomes) to get real history."
-    : "Tip: the outcome rule is a modeling choice. Be explicit about it on your site.";
-  setStatus("Done.");
 }
 
-function wire() {
-  $("runBtn").addEventListener("click", () => run().catch(e => {
-    console.error(e);
-    setStatus(String(e), "bad");
-  }));
+async function run() {
+  try {
+    setStatus("Loading data...");
 
-  for (const id of ["weightMethod","betaPrior","halfLife","minObs","minBacktestYears","maxCI","minGroundhogs","target"]) {
-    $(id).addEventListener("change", () => run().catch(()=>{}));
+    const [predObj, outcomesText, noaaObj] = await Promise.all([
+      loadJson("./data/predictions.json"),
+      loadText("./data/outcomes.csv"),
+      loadJson("./data/noaa_groundhogs.json")
+    ]);
+
+    if (noaaObj?.period) {
+      $("leaderboardMeta").textContent = `NOAA Heritage accuracy list (${noaaObj.period}).`;
+    }
+
+    renderLeaderboard(noaaObj);
+
+    const outcomesRows = parseCSV(outcomesText);
+    const outcomes = indexOutcomes(outcomesRows);
+    const predByYear = indexPredictions(predObj);
+
+    const results = evaluateAlgorithms(predByYear, outcomes);
+    const best = pickBestAlgorithm(results);
+
+    if (!best) {
+      setStatus("No backtest data available.");
+      return;
+    }
+
+    const nowcast = computeNowcast(predByYear, outcomes, best);
+    if (!nowcast) {
+      setStatus("No prediction data available.");
+      return;
+    }
+
+    const indicator = $("indicator");
+    indicator.textContent = outcomeLabel(nowcast.pred);
+    document.body.dataset.outcome = nowcast.pred;
+
+    $("certainty").textContent = fmtPct(nowcast.certainty, 1);
+    $("algoName").textContent = best.algo.label;
+    $("algoAcc").textContent = `Backtest accuracy: ${fmtPct(best.accuracy)} (n=${best.backtestN}, through ${best.lastYear})`;
+    $("predictionYear").textContent = `${nowcast.latestYear}`;
+    $("voterCount").textContent = `${nowcast.used}`;
+    $("meta").textContent = "Prediction uses the highest-accuracy algorithm from the backtest set.";
+
+    setStatus("");
+  } catch (err) {
+    console.error(err);
+    setStatus(String(err));
   }
-
-  run().catch(e => {
-    console.error(e);
-    setStatus(String(e), "bad");
-  });
 }
 
-wire();
+run();

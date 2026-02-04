@@ -1,0 +1,25 @@
+{
+  "source": "NOAA Heritage: Grading Groundhogs",
+  "period": "2005-2024",
+  "groundhogs": [
+    { "name": "Punxsutawney Phil", "accuracy": 100.0 },
+    { "name": "Staten Island Chuck", "accuracy": 85.3 },
+    { "name": "Octoraro Orphie", "accuracy": 84.7 },
+    { "name": "Long Island Malverne Mel", "accuracy": 83.3 },
+    { "name": "Dunkirk Dave", "accuracy": 81.8 },
+    { "name": "Peeps (WNY)", "accuracy": 80.0 },
+    { "name": "Potomac Phil", "accuracy": 79.4 },
+    { "name": "Gen. Beauregard Lee", "accuracy": 78.4 },
+    { "name": "Birmingham Bill", "accuracy": 78.3 },
+    { "name": "Milltown Mel", "accuracy": 77.8 },
+    { "name": "Smith Lake Jake", "accuracy": 77.3 },
+    { "name": "Concord Charlie", "accuracy": 76.8 },
+    { "name": "Holtsville Hal", "accuracy": 75.0 },
+    { "name": "Wiarton Willie", "accuracy": 74.4 },
+    { "name": "Buckeye Chuck", "accuracy": 71.7 },
+    { "name": "French Creek Freddie", "accuracy": 65.0 },
+    { "name": "Turtle (NC)", "accuracy": 64.5 },
+    { "name": "Georgia General Beauregard Lee", "accuracy": 63.3 },
+    { "name": "Essex Ed", "accuracy": 58.3 }
+  ]
+}
