@@ -1,0 +1,29 @@
+{
+  "updatedAt": "SAMPLE-0000-00-00T00:00:00Z",
+  "groundhogs": [
+    {
+      "slug": "punxsutawney-phil",
+      "name": "Punxsutawney Phil",
+      "region": "Punxsutawney, PA, US",
+      "latitude": 40.943,
+      "longitude": -78.97,
+      "source": "sample"
+    },
+    {
+      "slug": "staten-island-chuck",
+      "name": "Staten Island Chuck",
+      "region": "Staten Island, NY, US",
+      "latitude": 40.5795,
+      "longitude": -74.1502,
+      "source": "sample"
+    },
+    {
+      "slug": "wiarton-willie",
+      "name": "Wiarton Willie",
+      "region": "Wiarton, ON, CA",
+      "latitude": 44.738,
+      "longitude": -81.133,
+      "source": "sample"
+    }
+  ]
+}

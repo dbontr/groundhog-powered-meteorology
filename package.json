@@ -1,0 +1,11 @@
+{
+  "name": "groundhog-ensemble-gh-pages",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "update:predictions": "node scripts/update_predictions.mjs",
+    "update:outcomes:us": "node scripts/update_outcomes_us_conus.mjs",
+    "build": "node scripts/build.mjs"
+  }
+}

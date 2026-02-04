@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Groundhog Ensemble Forecast</title>
+  <link rel="stylesheet" href="styles.css" />
+  <meta name="description" content="Backtesting a weighted ensemble of Groundhog Day predictions." />
+</head>
+<body>
+  <header>
+    <h1>Groundhog Ensemble Forecast</h1>
+    <p class="sub">
+      A tiny, nerdy dashboard that weights Groundhog Day prognosticators by historical performance,
+      runs a strict backtest, and picks a Data Adequacy Epoch (DAE) for the “since YEAR we’ve been X% accurate” claim.
+    </p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>Controls</h2>
+
+      <div class="grid">
+        <label>
+          Weighting method
+          <select id="weightMethod">
+            <option value="bayes">Bayesian mean (Beta prior) + sample boost</option>
+            <option value="smooth_acc">Smoothed accuracy</option>
+            <option value="exp_decay">Exponentially-decayed accuracy</option>
+          </select>
+        </label>
+
+        <label>
+          Beta prior (a, b)
+          <input id="betaPrior" type="text" value="2,2" />
+          <span class="hint">Only used for Bayesian weighting.</span>
+        </label>
+
+        <label>
+          Decay half-life (years)
+          <input id="halfLife" type="number" value="10" min="1" step="1" />
+          <span class="hint">Only used for exp. decay.</span>
+        </label>
+
+        <label>
+          Min observations per groundhog
+          <input id="minObs" type="number" value="5" min="0" step="1" />
+        </label>
+
+        <label>
+          DAE: minimum backtest years
+          <input id="minBacktestYears" type="number" value="10" min="1" step="1" />
+        </label>
+
+        <label>
+          DAE: max 95% CI half-width
+          <input id="maxCI" type="number" value="0.10" min="0.01" max="0.50" step="0.01" />
+        </label>
+
+        <label>
+          DAE: minimum active groundhogs
+          <input id="minGroundhogs" type="number" value="8" min="1" step="1" />
+        </label>
+
+        <label>
+          Score target
+          <select id="target">
+            <option value="US_CONUS_FEBMAR_MEAN_ANOM">US (CONUS): mean Feb+Mar anomaly</option>
+          </select>
+          <span class="hint">Define your truth carefully. This is configurable.</span>
+        </label>
+      </div>
+
+      <div class="row">
+        <button id="runBtn">Run backtest</button>
+        <span id="status" class="status"></span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Nowcast</h2>
+      <div id="nowcast" class="big"></div>
+      <div id="sinceDae" class="since"></div>
+      <div id="severity" class="small"></div>
+      <div class="small" id="notes"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Accuracy over time</h2>
+      <canvas id="chartAccuracy" height="110"></canvas>
+    </section>
+
+    <section class="panel">
+      <h2>Top groundhogs (by trained weight)</h2>
+      <div id="topGroundhogs"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Data</h2>
+      <details>
+        <summary>Show / hide loaded datasets</summary>
+        <pre id="dataDump" class="dump"></pre>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      Data: <a href="https://groundhog-day.com/api" target="_blank" rel="noreferrer">GROUNDHOG-DAY.com API</a> (predictions) and NOAA/NCEI (optional outcomes).
+      This site makes its choices explicit; Nature does not.
+    </p>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

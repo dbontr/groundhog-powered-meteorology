@@ -1,0 +1,245 @@
+{
+  "updatedAt": "SAMPLE-0000-00-00T00:00:00Z",
+  "predictions": [
+    {
+      "year": 2016,
+      "shadow": false,
+      "groundhogSlug": "punxsutawney-phil",
+      "groundhogName": "Punxsutawney Phil",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2016,
+      "shadow": true,
+      "groundhogSlug": "staten-island-chuck",
+      "groundhogName": "Staten Island Chuck",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2016,
+      "shadow": true,
+      "groundhogSlug": "wiarton-willie",
+      "groundhogName": "Wiarton Willie",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2017,
+      "shadow": true,
+      "groundhogSlug": "punxsutawney-phil",
+      "groundhogName": "Punxsutawney Phil",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2017,
+      "shadow": false,
+      "groundhogSlug": "staten-island-chuck",
+      "groundhogName": "Staten Island Chuck",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2017,
+      "shadow": false,
+      "groundhogSlug": "wiarton-willie",
+      "groundhogName": "Wiarton Willie",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2018,
+      "shadow": false,
+      "groundhogSlug": "punxsutawney-phil",
+      "groundhogName": "Punxsutawney Phil",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2018,
+      "shadow": true,
+      "groundhogSlug": "staten-island-chuck",
+      "groundhogName": "Staten Island Chuck",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2018,
+      "shadow": true,
+      "groundhogSlug": "wiarton-willie",
+      "groundhogName": "Wiarton Willie",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2019,
+      "shadow": true,
+      "groundhogSlug": "punxsutawney-phil",
+      "groundhogName": "Punxsutawney Phil",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2019,
+      "shadow": true,
+      "groundhogSlug": "staten-island-chuck",
+      "groundhogName": "Staten Island Chuck",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2019,
+      "shadow": false,
+      "groundhogSlug": "wiarton-willie",
+      "groundhogName": "Wiarton Willie",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2020,
+      "shadow": true,
+      "groundhogSlug": "punxsutawney-phil",
+      "groundhogName": "Punxsutawney Phil",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2020,
+      "shadow": true,
+      "groundhogSlug": "staten-island-chuck",
+      "groundhogName": "Staten Island Chuck",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2020,
+      "shadow": false,
+      "groundhogSlug": "wiarton-willie",
+      "groundhogName": "Wiarton Willie",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2021,
+      "shadow": false,
+      "groundhogSlug": "punxsutawney-phil",
+      "groundhogName": "Punxsutawney Phil",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2021,
+      "shadow": true,
+      "groundhogSlug": "staten-island-chuck",
+      "groundhogName": "Staten Island Chuck",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2021,
+      "shadow": false,
+      "groundhogSlug": "wiarton-willie",
+      "groundhogName": "Wiarton Willie",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2022,
+      "shadow": false,
+      "groundhogSlug": "punxsutawney-phil",
+      "groundhogName": "Punxsutawney Phil",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2022,
+      "shadow": true,
+      "groundhogSlug": "staten-island-chuck",
+      "groundhogName": "Staten Island Chuck",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2022,
+      "shadow": false,
+      "groundhogSlug": "wiarton-willie",
+      "groundhogName": "Wiarton Willie",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2023,
+      "shadow": false,
+      "groundhogSlug": "punxsutawney-phil",
+      "groundhogName": "Punxsutawney Phil",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2023,
+      "shadow": true,
+      "groundhogSlug": "staten-island-chuck",
+      "groundhogName": "Staten Island Chuck",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2023,
+      "shadow": true,
+      "groundhogSlug": "wiarton-willie",
+      "groundhogName": "Wiarton Willie",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2024,
+      "shadow": false,
+      "groundhogSlug": "punxsutawney-phil",
+      "groundhogName": "Punxsutawney Phil",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2024,
+      "shadow": true,
+      "groundhogSlug": "staten-island-chuck",
+      "groundhogName": "Staten Island Chuck",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2024,
+      "shadow": true,
+      "groundhogSlug": "wiarton-willie",
+      "groundhogName": "Wiarton Willie",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2025,
+      "shadow": true,
+      "groundhogSlug": "punxsutawney-phil",
+      "groundhogName": "Punxsutawney Phil",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2025,
+      "shadow": false,
+      "groundhogSlug": "staten-island-chuck",
+      "groundhogName": "Staten Island Chuck",
+      "details": "(sample)",
+      "source": "sample"
+    },
+    {
+      "year": 2025,
+      "shadow": false,
+      "groundhogSlug": "wiarton-willie",
+      "groundhogName": "Wiarton Willie",
+      "details": "(sample)",
+      "source": "sample"
+    }
+  ]
+}
