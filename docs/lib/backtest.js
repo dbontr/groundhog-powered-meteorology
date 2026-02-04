@@ -90,7 +90,7 @@ export function trainWeights(predByYear, outcomes, target, yearExclusive, method
   const weights = new Map();
   const stats = new Map();
 
-  const usesDecay = (method === "exp_decay" || method === "logit_decay" || method === "wilson_decay" || method === "zscore_decay");
+  const usesDecay = (method === "exp_decay" || method === "logit_decay" || method === "wilson_decay" || method === "zscore_decay" || method === "centered_decay");
   const counts = usesDecay ? countsDecayed : countsRaw;
 
   for (const [slug, c] of counts) {
@@ -102,7 +102,7 @@ export function trainWeights(predByYear, outcomes, target, yearExclusive, method
     if (nRaw < minObs) continue;
 
     let pHat;
-    if (method === "bayes" || method === "exp_decay" || method === "logit" || method === "logit_decay" || method === "wilson" || method === "wilson_decay") {
+    if (method === "bayes" || method === "exp_decay" || method === "logit" || method === "logit_decay" || method === "wilson" || method === "wilson_decay" || method === "centered" || method === "centered_decay") {
       pHat = (k + a0) / (n + a0 + b0);
     } else { // smoothed accuracy
       pHat = (k + 1) / (n + 2);
@@ -120,6 +120,8 @@ export function trainWeights(predByYear, outcomes, target, yearExclusive, method
       const nEff = Math.max(1e-6, n);
       const z = (k - 0.5 * n) / Math.sqrt(0.25 * nEff);
       w = z * alpha * boost;
+    } else if (method === "centered" || method === "centered_decay") {
+      w = (pClamped - 0.5) * alpha * boost;
     } else if (method === "wilson" || method === "wilson_decay") {
       const ci = wilsonCI(k, n);
       const signal = ci.center - 0.5;
