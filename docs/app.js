@@ -18,6 +18,32 @@ const ALGORITHMS = [
   { id: "exp_decay", label: "Exponentially-decayed accuracy" }
 ];
 
+const NOAA_FALLBACK = {
+  source: "NOAA Heritage: Grading Groundhogs",
+  period: "2005-2024",
+  groundhogs: [
+    { name: "Staten Island Chuck", accuracy: 85.0 },
+    { name: "General Beauregard Lee", accuracy: 80.0 },
+    { name: "Lander Lil", accuracy: 75.0 },
+    { name: "Concord Charlie", accuracy: 65.0 },
+    { name: "Gertie the Groundhog", accuracy: 65.0 },
+    { name: "Jimmy the Groundhog", accuracy: 60.0 },
+    { name: "Woodstock Willie", accuracy: 60.0 },
+    { name: "Buckeye Chuck", accuracy: 55.0 },
+    { name: "French Creek Freddie", accuracy: 55.0 },
+    { name: "Malverne Mel", accuracy: 55.0 },
+    { name: "Octoraro Orphie", accuracy: 52.63 },
+    { name: "Dunkirk Dave", accuracy: 50.0 },
+    { name: "Holtsville Hal", accuracy: 50.0 },
+    { name: "Poor Richard", accuracy: 50.0 },
+    { name: "Uni the Groundhog", accuracy: 47.37 },
+    { name: "Schnogadahl Sammi", accuracy: 38.89 },
+    { name: "Punxsutawney Phil", accuracy: 35.0 },
+    { name: "Woody the Woodchuck", accuracy: 35.0 },
+    { name: "Mojave Max", accuracy: 25.0 }
+  ]
+};
+
 async function loadJson(url) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} (${url})`);
@@ -37,7 +63,8 @@ function fmtPct(x, digits = 1) {
 
 function fmtPctValue(x, digits = 1) {
   if (!Number.isFinite(x)) return "—";
-  return `${x.toFixed(digits)}%`;
+  const useDigits = Math.abs(x - Math.round(x)) < 1e-6 ? 0 : digits;
+  return `${x.toFixed(useDigits)}%`;
 }
 
 function setStatus(msg) {
@@ -122,7 +149,7 @@ function renderLeaderboard(data) {
       <tr>
         <td class="rank">${String(idx + 1).padStart(2, "0")}</td>
         <td>${g.name}</td>
-        <td class="accuracy">${fmtPctValue(accuracy)}</td>
+        <td class="accuracy">${fmtPctValue(accuracy, 2)}</td>
       </tr>
     `;
   }).join("");
@@ -145,16 +172,21 @@ async function run() {
   try {
     setStatus("Loading data...");
 
-    const [predObj, outcomesText, noaaObj] = await Promise.all([
+    const [predObj, outcomesText] = await Promise.all([
       loadJson("./data/predictions.json"),
-      loadText("./data/outcomes.csv"),
-      loadJson("./data/noaa_groundhogs.json")
+      loadText("./data/outcomes.csv")
     ]);
+
+    let noaaObj = null;
+    try {
+      noaaObj = await loadJson("./data/noaa_groundhogs.json");
+    } catch (err) {
+      noaaObj = NOAA_FALLBACK;
+    }
 
     if (noaaObj?.period) {
       $("leaderboardMeta").textContent = `NOAA Heritage accuracy list (${noaaObj.period}).`;
     }
-
     renderLeaderboard(noaaObj);
 
     const outcomesRows = parseCSV(outcomesText);
@@ -162,11 +194,21 @@ async function run() {
     const predByYear = indexPredictions(predObj);
 
     const results = evaluateAlgorithms(predByYear, outcomes);
-    const best = pickBestAlgorithm(results);
+    let best = pickBestAlgorithm(results);
+    let usedFallback = false;
 
     if (!best) {
-      setStatus("No backtest data available.");
-      return;
+      usedFallback = true;
+      const algo = ALGORITHMS[0];
+      best = {
+        algo,
+        rows: [],
+        last: null,
+        accuracy: Number.NaN,
+        backtestN: 0,
+        lastYear: null,
+        order: 0
+      };
     }
 
     const nowcast = computeNowcast(predByYear, outcomes, best);
@@ -180,11 +222,17 @@ async function run() {
     document.body.dataset.outcome = nowcast.pred;
 
     $("certainty").textContent = fmtPct(nowcast.certainty, 1);
+    $("algoAccuracy").textContent = fmtPct(best.accuracy);
+    $("callYear").textContent = `Forecast for ${nowcast.latestYear}`;
     $("algoName").textContent = best.algo.label;
-    $("algoAcc").textContent = `Backtest accuracy: ${fmtPct(best.accuracy)} (n=${best.backtestN}, through ${best.lastYear})`;
+    $("algoAcc").textContent = Number.isFinite(best.accuracy)
+      ? `Backtest accuracy: ${fmtPct(best.accuracy)} (n=${best.backtestN}, through ${best.lastYear})`
+      : "Backtest unavailable (outcomes missing).";
     $("predictionYear").textContent = `${nowcast.latestYear}`;
     $("voterCount").textContent = `${nowcast.used}`;
-    $("meta").textContent = "Prediction uses the highest-accuracy algorithm from the backtest set.";
+    $("meta").textContent = usedFallback
+      ? "Backtest unavailable — showing default algorithm."
+      : "Prediction uses the highest-accuracy algorithm from the backtest set.";
 
     setStatus("");
   } catch (err) {

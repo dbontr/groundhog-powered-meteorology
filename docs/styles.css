@@ -132,21 +132,26 @@ main{
   text-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
 }
 
-.certainty{
-  display: flex;
-  align-items: baseline;
+.call-metrics{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-.certainty-label{
+.metric{
+  display: grid;
+  gap: 6px;
+}
+
+.metric-label{
   text-transform: uppercase;
   letter-spacing: 1.5px;
   font-size: 12px;
   color: var(--muted);
 }
 
-.certainty-value{
-  font-size: clamp(28px, 5vw, 46px);
+.metric-value{
+  font-size: clamp(24px, 4.5vw, 40px);
   font-weight: 600;
 }
 
@@ -267,4 +272,5 @@ footer{
   .panel{ padding: 18px; }
   .indicator{ letter-spacing: 2px; }
   .stats{ padding: 14px; }
+  .call-metrics{ grid-template-columns: 1fr; }
 }

@@ -19,11 +19,17 @@
   <main>
     <section class="panel hero">
       <div class="callout">
-        <div class="eyebrow">Most Accurate Call</div>
+        <div id="callYear" class="eyebrow">Forecast for —</div>
         <div id="indicator" class="indicator">—</div>
-        <div class="certainty">
-          <span class="certainty-label">Certainty</span>
-          <span id="certainty" class="certainty-value">—</span>
+        <div class="call-metrics">
+          <div class="metric">
+            <span class="metric-label">Certainty</span>
+            <span id="certainty" class="metric-value">—</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Algorithm Accuracy</span>
+            <span id="algoAccuracy" class="metric-value">—</span>
+          </div>
         </div>
         <div id="meta" class="meta"></div>
       </div>
