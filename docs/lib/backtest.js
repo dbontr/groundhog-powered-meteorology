@@ -53,13 +53,14 @@ function addCounts(counts, slug, isCorrect, weight=1) {
   c.k += isCorrect ? weight : 0;
 }
 
-function trainCounts(predByYear, outcomes, target, yearExclusive, halfLifeYears = 10) {
+function trainCounts(predByYear, outcomes, target, yearExclusive, halfLifeYears = 10, windowYears = null) {
   const countsRaw = new Map();
   const countsDecayed = new Map();
   const lambda = Math.log(2) / Math.max(1e-9, halfLifeYears);
 
   for (const [year, preds] of predByYear) {
     if (year >= yearExclusive) continue;
+    if (windowYears && year < (yearExclusive - windowYears)) continue;
     const actual = outcomes.get(`${target}:${year}`);
     if (!actual) continue;
 
@@ -83,12 +84,13 @@ export function trainWeights(predByYear, outcomes, target, yearExclusive, method
   const gamma = opts.gamma ?? 0.5;
   const [a0, b0] = opts.betaPrior ?? [2, 2];
   const halfLifeYears = opts.halfLifeYears ?? 10;
+  const windowYears = opts.windowYears ?? null;
 
-  const { countsRaw, countsDecayed } = trainCounts(predByYear, outcomes, target, yearExclusive, halfLifeYears);
+  const { countsRaw, countsDecayed } = trainCounts(predByYear, outcomes, target, yearExclusive, halfLifeYears, windowYears);
   const weights = new Map();
   const stats = new Map();
 
-  const usesDecay = (method === "exp_decay" || method === "logit_decay" || method === "wilson_decay");
+  const usesDecay = (method === "exp_decay" || method === "logit_decay" || method === "wilson_decay" || method === "zscore_decay");
   const counts = usesDecay ? countsDecayed : countsRaw;
 
   for (const [slug, c] of counts) {
@@ -114,6 +116,10 @@ export function trainWeights(predByYear, outcomes, target, yearExclusive, method
       // Signed weight: contrarian groundhogs (p < 0.5) get negative weight.
       const logit = Math.log(pClamped / (1 - pClamped));
       w = logit * alpha * boost;
+    } else if (method === "zscore" || method === "zscore_decay") {
+      const nEff = Math.max(1e-6, n);
+      const z = (k - 0.5 * n) / Math.sqrt(0.25 * nEff);
+      w = z * alpha * boost;
     } else if (method === "wilson" || method === "wilson_decay") {
       const ci = wilsonCI(k, n);
       const signal = ci.center - 0.5;

@@ -14,16 +14,22 @@ const DEFAULT_OPTS = {
 };
 
 const ALGORITHMS = [
-  { id: "bayes", label: "Bayesian mean + sample boost" },
-  { id: "smooth_acc", label: "Smoothed accuracy" },
-  { id: "exp_decay", label: "Exponentially-decayed accuracy" },
-  { id: "logit", label: "Logit weighting (flips contrarians)" },
-  { id: "logit_decay", label: "Logit weighting + decay" },
-  { id: "wilson", label: "Wilson confidence weighting" },
-  { id: "wilson_decay", label: "Wilson weighting + decay" }
+  { key: "bayes", method: "bayes", label: "Bayesian mean + sample boost" },
+  { key: "smooth_acc", method: "smooth_acc", label: "Smoothed accuracy" },
+  { key: "exp_decay", method: "exp_decay", label: "Exponentially-decayed accuracy" },
+  { key: "logit", method: "logit", label: "Logit weighting (flips contrarians)" },
+  { key: "logit_decay", method: "logit_decay", label: "Logit weighting + decay" },
+  { key: "wilson", method: "wilson", label: "Wilson confidence weighting" },
+  { key: "wilson_decay", method: "wilson_decay", label: "Wilson weighting + decay" },
+  { key: "zscore", method: "zscore", label: "Z-score weighting" },
+  { key: "zscore_decay", method: "zscore_decay", label: "Z-score weighting + decay" },
+  { key: "logit_win10", method: "logit", label: "Logit weighting (10y window)", opts: { windowYears: 10 } },
+  { key: "logit_win20", method: "logit", label: "Logit weighting (20y window)", opts: { windowYears: 20 } },
+  { key: "wilson_win10", method: "wilson", label: "Wilson weighting (10y window)", opts: { windowYears: 10 } },
+  { key: "zscore_win10", method: "zscore", label: "Z-score weighting (10y window)", opts: { windowYears: 10 } }
 ];
 
-const TOP_N_CHOICES = [5, 10, 20];
+const TOP_N_CHOICES = [5, 10, 20, 30];
 
 async function loadJson(url) {
   const res = await fetch(url, { cache: "no-store" });
@@ -143,7 +149,7 @@ function weightedVote(preds, weights, topN = null) {
   return { pred, certainty, used: items.length, usedWeighted: true };
 }
 
-function predictForYear(predByYear, outcomes, year, mode, method, topN) {
+function predictForYear(predByYear, outcomes, year, mode, algo, topN) {
   const preds = predByYear.get(year) ?? [];
   const totalPreds = preds.length;
   if (!totalPreds) {
@@ -155,8 +161,9 @@ function predictForYear(predByYear, outcomes, year, mode, method, topN) {
     return { ...res, totalPreds, usedWeighted: false };
   }
 
-  const methodId = method || "bayes";
-  const { weights, stats } = trainWeights(predByYear, outcomes, TARGET, year, methodId, DEFAULT_OPTS);
+  const methodId = algo?.method || "bayes";
+  const opts = { ...DEFAULT_OPTS, ...(algo?.opts ?? {}) };
+  const { weights, stats } = trainWeights(predByYear, outcomes, TARGET, year, methodId, opts);
   const predBySlug = new Map(preds.map((p) => [p.groundhogSlug, p]));
 
   if (mode === "auto_weighted") {
@@ -226,7 +233,7 @@ function predictForYear(predByYear, outcomes, year, mode, method, topN) {
   return { ...fallback, totalPreds, usedWeighted: false };
 }
 
-function backtestMode(predByYear, outcomes, mode, method, topN) {
+function backtestMode(predByYear, outcomes, mode, algo, topN) {
   const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
     .filter((y) => outcomes.has(`${TARGET}:${y}`));
 
@@ -235,7 +242,7 @@ function backtestMode(predByYear, outcomes, mode, method, topN) {
   let lastYear = null;
 
   for (const y of years) {
-    const res = predictForYear(predByYear, outcomes, y, mode, method, topN);
+    const res = predictForYear(predByYear, outcomes, y, mode, algo, topN);
     if (!res.pred) continue;
     n += 1;
     if (res.pred === outcomes.get(`${TARGET}:${y}`)) k += 1;
@@ -247,7 +254,7 @@ function backtestMode(predByYear, outcomes, mode, method, topN) {
 
 function pickBestMethodForMode(predByYear, outcomes, mode, topN) {
   const results = ALGORITHMS.map((algo, index) => {
-    const backtest = backtestMode(predByYear, outcomes, mode, algo.id, topN);
+    const backtest = backtestMode(predByYear, outcomes, mode, algo, topN);
     return { algo, order: index, ...backtest };
   });
   const viable = results.filter((r) => Number.isFinite(r.accuracy));
@@ -260,14 +267,14 @@ function pickBestMethodForMode(predByYear, outcomes, mode, topN) {
   return viable[0];
 }
 
-function pickBestOverall(predByYear, outcomes) {
+function buildBaseCandidates(predByYear, outcomes) {
   const candidates = [];
 
   const bestAuto = pickBestMethodForMode(predByYear, outcomes, "auto_weighted", null);
   if (bestAuto) {
     candidates.push({
       mode: "auto_weighted",
-      method: bestAuto.algo.id,
+      algo: bestAuto.algo,
       topN: null,
       label: `Auto weighted ensemble (${bestAuto.algo.label})`,
       backtest: bestAuto
@@ -279,7 +286,7 @@ function pickBestOverall(predByYear, outcomes) {
     if (bestWeighted) {
       candidates.push({
         mode: "topn_weighted",
-        method: bestWeighted.algo.id,
+        algo: bestWeighted.algo,
         topN: n,
         label: `Top-${n} weighted ensemble (${bestWeighted.algo.label})`,
         backtest: bestWeighted
@@ -292,7 +299,7 @@ function pickBestOverall(predByYear, outcomes) {
     if (bestMajority) {
       candidates.push({
         mode: "topn_majority",
-        method: bestMajority.algo.id,
+        algo: bestMajority.algo,
         topN: n,
         label: `Top-${n} majority vote (${bestMajority.algo.label})`,
         backtest: bestMajority
@@ -304,18 +311,18 @@ function pickBestOverall(predByYear, outcomes) {
   if (bestSingle) {
     candidates.push({
       mode: "best_single",
-      method: bestSingle.algo.id,
+      algo: bestSingle.algo,
       topN: 1,
       label: `Best single groundhog (${bestSingle.algo.label})`,
       backtest: bestSingle
     });
   }
 
-  const flipMajority = backtestMode(predByYear, outcomes, "flip_majority", "bayes", null);
+  const flipMajority = backtestMode(predByYear, outcomes, "flip_majority", ALGORITHMS[0], null);
   if (Number.isFinite(flipMajority.accuracy)) {
     candidates.push({
       mode: "flip_majority",
-      method: "bayes",
+      algo: ALGORITHMS[0],
       topN: null,
       label: "Flip contrarians (Wilson filter)",
       backtest: flipMajority
@@ -326,11 +333,145 @@ function pickBestOverall(predByYear, outcomes) {
   if (Number.isFinite(majorityAll.accuracy)) {
     candidates.push({
       mode: "majority_all",
-      method: null,
+      algo: null,
       topN: null,
       label: "Majority vote (all groundhogs)",
       backtest: majorityAll
     });
+  }
+
+  return candidates;
+}
+
+function candidateKey(c) {
+  return `${c.mode}|${c.algo?.key ?? "none"}|${c.topN ?? ""}`;
+}
+
+function getCandidatePrediction(cache, predByYear, outcomes, year, c) {
+  const key = candidateKey(c);
+  if (!cache.has(key)) cache.set(key, new Map());
+  const byYear = cache.get(key);
+  if (!byYear.has(year)) {
+    byYear.set(year, predictForYear(predByYear, outcomes, year, c.mode, c.algo, c.topN));
+  }
+  return byYear.get(year);
+}
+
+function metaWeightedPredict(predByYear, outcomes, year, baseCandidates, windowYears, cache) {
+  const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
+    .filter((y) => y < year && outcomes.has(`${TARGET}:${y}`));
+  const windowStart = windowYears ? (year - windowYears) : null;
+
+  let score = 0;
+  let totalAbs = 0;
+  let used = 0;
+
+  for (const c of baseCandidates) {
+    let k = 0;
+    let n = 0;
+    for (const y of years) {
+      if (windowStart && y < windowStart) continue;
+      const res = getCandidatePrediction(cache, predByYear, outcomes, y, c);
+      if (!res?.pred) continue;
+      n += 1;
+      if (res.pred === outcomes.get(`${TARGET}:${y}`)) k += 1;
+    }
+    if (!n) continue;
+    const p = (k + 2) / (n + 4);
+    const w = Math.log(p / (1 - p));
+
+    const cur = getCandidatePrediction(cache, predByYear, outcomes, year, c);
+    if (!cur?.pred) continue;
+    const vote = cur.pred === "EARLY_SPRING" ? 1 : -1;
+    score += w * vote;
+    totalAbs += Math.abs(w);
+    used += 1;
+  }
+
+  if (!totalAbs) return { pred: "", certainty: Number.NaN, used };
+  const pred = score >= 0 ? "EARLY_SPRING" : "LONG_WINTER";
+  const certainty = Math.min(1, Math.abs(score) / totalAbs);
+  return { pred, certainty, used };
+}
+
+function metaBestPredict(predByYear, outcomes, year, baseCandidates, windowYears, cache) {
+  const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
+    .filter((y) => y < year && outcomes.has(`${TARGET}:${y}`));
+  const windowStart = windowYears ? (year - windowYears) : null;
+
+  let best = null;
+  for (const c of baseCandidates) {
+    let k = 0;
+    let n = 0;
+    for (const y of years) {
+      if (windowStart && y < windowStart) continue;
+      const res = getCandidatePrediction(cache, predByYear, outcomes, y, c);
+      if (!res?.pred) continue;
+      n += 1;
+      if (res.pred === outcomes.get(`${TARGET}:${y}`)) k += 1;
+    }
+    if (!n) continue;
+    const acc = k / n;
+    if (!best || acc > best.acc || (acc === best.acc && n > best.n)) {
+      best = { candidate: c, acc, n };
+    }
+  }
+
+  if (!best) return { pred: "", certainty: Number.NaN, used: 0 };
+  const cur = getCandidatePrediction(cache, predByYear, outcomes, year, best.candidate);
+  if (!cur?.pred) return { pred: "", certainty: Number.NaN, used: 0 };
+  return { pred: cur.pred, certainty: best.acc, used: 1 };
+}
+
+function backtestMeta(predByYear, outcomes, baseCandidates, windowYears, strategy) {
+  const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
+    .filter((y) => outcomes.has(`${TARGET}:${y}`));
+  const cache = new Map();
+  let k = 0;
+  let n = 0;
+  let lastYear = null;
+
+  for (const y of years) {
+    const res = strategy === "best"
+      ? metaBestPredict(predByYear, outcomes, y, baseCandidates, windowYears, cache)
+      : metaWeightedPredict(predByYear, outcomes, y, baseCandidates, windowYears, cache);
+    if (!res.pred) continue;
+    n += 1;
+    if (res.pred === outcomes.get(`${TARGET}:${y}`)) k += 1;
+    lastYear = y;
+  }
+
+  return { accuracy: n ? k / n : Number.NaN, backtestN: n, lastYear };
+}
+
+function pickBestOverall(predByYear, outcomes) {
+  const baseCandidates = buildBaseCandidates(predByYear, outcomes);
+  const candidates = [...baseCandidates];
+
+  for (const windowYears of [15, 25, 40]) {
+    const metaWeighted = backtestMeta(predByYear, outcomes, baseCandidates, windowYears, "weighted");
+    if (Number.isFinite(metaWeighted.accuracy)) {
+      candidates.push({
+        mode: "meta_weighted",
+        algo: { key: `meta_weighted_${windowYears}` },
+        topN: null,
+        label: `Meta ensemble (${windowYears}y window)`,
+        backtest: metaWeighted,
+        meta: { strategy: "weighted", windowYears, baseCandidates }
+      });
+    }
+
+    const metaBest = backtestMeta(predByYear, outcomes, baseCandidates, windowYears, "best");
+    if (Number.isFinite(metaBest.accuracy)) {
+      candidates.push({
+        mode: "meta_best",
+        algo: { key: `meta_best_${windowYears}` },
+        topN: null,
+        label: `Meta best-of (${windowYears}y window)`,
+        backtest: metaBest,
+        meta: { strategy: "best", windowYears, baseCandidates }
+      });
+    }
   }
 
   const viable = candidates.filter(c => Number.isFinite(c.backtest?.accuracy));
@@ -345,11 +486,31 @@ function pickBestOverall(predByYear, outcomes) {
   return viable[0];
 }
 
-function computeNowcast(predByYear, outcomes, mode, method, topN) {
+function computeMetaNowcast(predByYear, outcomes, meta) {
   const years = Array.from(predByYear.keys());
   if (!years.length) return null;
   const latestYear = Math.max(...years);
-  const res = predictForYear(predByYear, outcomes, latestYear, mode, method, topN);
+  const preds = predByYear.get(latestYear) ?? [];
+  const cache = new Map();
+  const res = meta.strategy === "best"
+    ? metaBestPredict(predByYear, outcomes, latestYear, meta.baseCandidates, meta.windowYears, cache)
+    : metaWeightedPredict(predByYear, outcomes, latestYear, meta.baseCandidates, meta.windowYears, cache);
+
+  return {
+    latestYear,
+    pred: res.pred,
+    certainty: res.certainty,
+    used: preds.length,
+    totalPreds: preds.length,
+    usedWeighted: meta.strategy === "weighted"
+  };
+}
+
+function computeNowcast(predByYear, outcomes, mode, algo, topN) {
+  const years = Array.from(predByYear.keys());
+  if (!years.length) return null;
+  const latestYear = Math.max(...years);
+  const res = predictForYear(predByYear, outcomes, latestYear, mode, algo, topN);
   return { latestYear, ...res };
 }
 
@@ -486,7 +647,9 @@ async function run() {
       return;
     }
 
-    const nowcast = computeNowcast(predByYear, outcomes, chosen.mode, chosen.method, chosen.topN);
+    const nowcast = chosen.meta
+      ? computeMetaNowcast(predByYear, outcomes, chosen.meta)
+      : computeNowcast(predByYear, outcomes, chosen.mode, chosen.algo, chosen.topN);
     if (!nowcast) {
       setStatus("No prediction data available.");
       return;
