@@ -88,7 +88,8 @@ export function trainWeights(predByYear, outcomes, target, yearExclusive, method
   const weights = new Map();
   const stats = new Map();
 
-  const counts = (method === "exp_decay") ? countsDecayed : countsRaw;
+  const usesDecay = (method === "exp_decay" || method === "logit_decay");
+  const counts = usesDecay ? countsDecayed : countsRaw;
 
   for (const [slug, c] of counts) {
     const n = c.n;
@@ -99,7 +100,7 @@ export function trainWeights(predByYear, outcomes, target, yearExclusive, method
     if (nRaw < minObs) continue;
 
     let pHat;
-    if (method === "bayes" || method === "exp_decay") {
+    if (method === "bayes" || method === "exp_decay" || method === "logit" || method === "logit_decay") {
       pHat = (k + a0) / (n + a0 + b0);
     } else { // smoothed accuracy
       pHat = (k + 1) / (n + 2);
@@ -107,15 +108,23 @@ export function trainWeights(predByYear, outcomes, target, yearExclusive, method
 
     // sample-size boost; gently rewards more evidence.
     const boost = Math.pow(Math.max(1, nRaw), gamma);
-    const w = Math.pow(clamp(pHat, 1e-6, 1-1e-6), alpha) * boost;
+    const pClamped = clamp(pHat, 1e-6, 1 - 1e-6);
+    let w;
+    if (method === "logit" || method === "logit_decay") {
+      // Signed weight: contrarian groundhogs (p < 0.5) get negative weight.
+      const logit = Math.log(pClamped / (1 - pClamped));
+      w = logit * alpha * boost;
+    } else {
+      w = Math.pow(pClamped, alpha) * boost;
+    }
 
     weights.set(slug, w);
     stats.set(slug, { n: nRaw, k: (countsRaw.get(slug)?.k ?? 0), p: pHat, w });
   }
 
-  // Normalize to sum 1 (optional but nice for UI)
-  const sum = Array.from(weights.values()).reduce((s,x)=>s+x,0) || 1;
-  for (const [slug, w] of weights) weights.set(slug, w / sum);
+  // Normalize by sum of absolute weights (works for signed logit weights too).
+  const sumAbs = Array.from(weights.values()).reduce((s,x)=>s+Math.abs(x),0) || 1;
+  for (const [slug, w] of weights) weights.set(slug, w / sumAbs);
 
   return { weights, stats };
 }

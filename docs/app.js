@@ -16,7 +16,9 @@ const DEFAULT_OPTS = {
 const ALGORITHMS = [
   { id: "bayes", label: "Bayesian mean + sample boost" },
   { id: "smooth_acc", label: "Smoothed accuracy" },
-  { id: "exp_decay", label: "Exponentially-decayed accuracy" }
+  { id: "exp_decay", label: "Exponentially-decayed accuracy" },
+  { id: "logit", label: "Logit weighting (flips contrarians)" },
+  { id: "logit_decay", label: "Logit weighting + decay" }
 ];
 
 const TOP_N_CHOICES = [5, 10, 20];
@@ -90,26 +92,26 @@ function rankStats(stats) {
 function weightedVote(preds, weights, topN = null) {
   const items = preds
     .map((p) => ({ p, w: weights.get(p.groundhogSlug) || 0 }))
-    .filter((x) => x.w > 0);
+    .filter((x) => x.w !== 0);
 
   if (topN) {
-    items.sort((a, b) => b.w - a.w);
+    items.sort((a, b) => Math.abs(b.w) - Math.abs(a.w));
     items.length = Math.min(items.length, topN);
   }
 
-  let totalWeight = 0;
-  let earlyWeight = 0;
+  let totalAbs = 0;
+  let score = 0;
   for (const { p, w } of items) {
-    totalWeight += w;
     const out = predictionToOutcome(!!p.shadow);
-    if (out === "EARLY_SPRING") earlyWeight += w;
+    const vote = (out === "EARLY_SPRING") ? 1 : -1;
+    totalAbs += Math.abs(w);
+    score += w * vote;
   }
 
-  if (!totalWeight) return { pred: "", certainty: Number.NaN, used: 0, usedWeighted: false };
+  if (!totalAbs) return { pred: "", certainty: Number.NaN, used: 0, usedWeighted: false };
 
-  const pEarly = earlyWeight / totalWeight;
-  const pred = pEarly >= 0.5 ? "EARLY_SPRING" : "LONG_WINTER";
-  const certainty = Math.max(pEarly, 1 - pEarly);
+  const pred = score >= 0 ? "EARLY_SPRING" : "LONG_WINTER";
+  const certainty = Math.min(1, Math.abs(score) / totalAbs);
   return { pred, certainty, used: items.length, usedWeighted: true };
 }
 
