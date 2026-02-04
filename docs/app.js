@@ -1,11 +1,12 @@
 import { parseCSV } from "./lib/stats.js";
-import { indexOutcomes, indexPredictions, runBacktest, trainWeights, predictionToOutcome } from "./lib/backtest.js";
+import { indexOutcomes, indexPredictions, trainWeights, predictionToOutcome } from "./lib/backtest.js";
 
 const $ = (id) => document.getElementById(id);
 
 const TARGET = "US_CONUS_FEBMAR_MEAN_ANOM";
+const MIN_OBS = 20;
 const DEFAULT_OPTS = {
-  minObs: 5,
+  minObs: MIN_OBS,
   betaPrior: [2, 2],
   halfLifeYears: 10,
   alpha: 2.0,
@@ -17,6 +18,8 @@ const ALGORITHMS = [
   { id: "smooth_acc", label: "Smoothed accuracy" },
   { id: "exp_decay", label: "Exponentially-decayed accuracy" }
 ];
+
+const TOP_N_CHOICES = [5, 10, 20];
 
 async function loadJson(url) {
   const res = await fetch(url, { cache: "no-store" });
@@ -50,30 +53,164 @@ function outcomeLabel(outcome) {
   return outcome === "EARLY_SPRING" ? "EARLY SPRING" : "LATE WINTER";
 }
 
-function evaluateAlgorithms(predByYear, outcomes) {
-  return ALGORITHMS.map((algo, index) => {
-    const rows = runBacktest(predByYear, outcomes, TARGET, algo.id, DEFAULT_OPTS);
-    let last = null;
-    for (let i = rows.length - 1; i >= 0; i--) {
-      if (Number.isFinite(rows[i].cumAcc)) {
-        last = rows[i];
-        break;
-      }
-    }
-    if (!last && rows.length) last = rows[rows.length - 1];
-    return {
-      algo,
-      rows,
-      last,
-      accuracy: last?.cumAcc ?? Number.NaN,
-      backtestN: last?.cumN ?? 0,
-      lastYear: last?.year ?? null,
-      order: index
-    };
-  });
+function majorityVote(preds, allowed = null) {
+  let early = 0;
+  let late = 0;
+  for (const p of preds) {
+    if (allowed && !allowed.has(p.groundhogSlug)) continue;
+    const out = predictionToOutcome(!!p.shadow);
+    if (out === "EARLY_SPRING") early += 1;
+    else late += 1;
+  }
+  const used = early + late;
+  if (!used) return { pred: "", certainty: Number.NaN, used };
+  const pred = early >= late ? "EARLY_SPRING" : "LONG_WINTER";
+  const certainty = Math.max(early, late) / used;
+  return { pred, certainty, used };
 }
 
-function pickBestAlgorithm(results) {
+function rankStats(stats) {
+  const arr = [];
+  for (const [slug, s] of stats ?? []) {
+    if (!s || !Number.isFinite(s.n) || s.n <= 0) continue;
+    arr.push({
+      slug,
+      acc: s.k / s.n,
+      n: s.n
+    });
+  }
+  arr.sort((a, b) => {
+    if (b.acc !== a.acc) return b.acc - a.acc;
+    if (b.n !== a.n) return b.n - a.n;
+    return a.slug.localeCompare(b.slug);
+  });
+  return arr;
+}
+
+function weightedVote(preds, weights, topN = null) {
+  const items = preds
+    .map((p) => ({ p, w: weights.get(p.groundhogSlug) || 0 }))
+    .filter((x) => x.w > 0);
+
+  if (topN) {
+    items.sort((a, b) => b.w - a.w);
+    items.length = Math.min(items.length, topN);
+  }
+
+  let totalWeight = 0;
+  let earlyWeight = 0;
+  for (const { p, w } of items) {
+    totalWeight += w;
+    const out = predictionToOutcome(!!p.shadow);
+    if (out === "EARLY_SPRING") earlyWeight += w;
+  }
+
+  if (!totalWeight) return { pred: "", certainty: Number.NaN, used: 0, usedWeighted: false };
+
+  const pEarly = earlyWeight / totalWeight;
+  const pred = pEarly >= 0.5 ? "EARLY_SPRING" : "LONG_WINTER";
+  const certainty = Math.max(pEarly, 1 - pEarly);
+  return { pred, certainty, used: items.length, usedWeighted: true };
+}
+
+function predictForYear(predByYear, outcomes, year, mode, method, topN) {
+  const preds = predByYear.get(year) ?? [];
+  const totalPreds = preds.length;
+  if (!totalPreds) {
+    return { pred: "", certainty: Number.NaN, used: 0, totalPreds, usedWeighted: false };
+  }
+
+  if (mode === "majority_all") {
+    const res = majorityVote(preds);
+    return { ...res, totalPreds, usedWeighted: false };
+  }
+
+  const methodId = method || "bayes";
+  const { weights, stats } = trainWeights(predByYear, outcomes, TARGET, year, methodId, DEFAULT_OPTS);
+  const predBySlug = new Map(preds.map((p) => [p.groundhogSlug, p]));
+
+  if (mode === "auto_weighted") {
+    const res = weightedVote(preds, weights, null);
+    if (!res.used) {
+      const fallback = majorityVote(preds);
+      return { ...fallback, totalPreds, usedWeighted: false };
+    }
+    return { ...res, totalPreds };
+  }
+
+  if (mode === "topn_weighted") {
+    const res = weightedVote(preds, weights, topN);
+    if (!res.used) {
+      const fallback = majorityVote(preds);
+      return { ...fallback, totalPreds, usedWeighted: false };
+    }
+    return { ...res, totalPreds };
+  }
+
+  if (mode === "topn_majority") {
+    const ranked = rankStats(stats);
+    const allowed = new Set();
+    for (const r of ranked) {
+      if (predBySlug.has(r.slug)) allowed.add(r.slug);
+      if (allowed.size >= topN) break;
+    }
+    const res = majorityVote(preds, allowed);
+    if (!res.used) {
+      const fallback = majorityVote(preds);
+      return { ...fallback, totalPreds, usedWeighted: false };
+    }
+    return { ...res, totalPreds, usedWeighted: false };
+  }
+
+  if (mode === "best_single") {
+    const ranked = rankStats(stats);
+    for (const r of ranked) {
+      const p = predBySlug.get(r.slug);
+      if (!p) continue;
+      const pred = predictionToOutcome(!!p.shadow);
+      return {
+        pred,
+        certainty: r.acc,
+        used: 1,
+        totalPreds,
+        usedWeighted: false,
+        selectedSlug: r.slug,
+        selectedAcc: r.acc,
+        selectedN: r.n
+      };
+    }
+    const fallback = majorityVote(preds);
+    return { ...fallback, totalPreds, usedWeighted: false };
+  }
+
+  const fallback = majorityVote(preds);
+  return { ...fallback, totalPreds, usedWeighted: false };
+}
+
+function backtestMode(predByYear, outcomes, mode, method, topN) {
+  const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
+    .filter((y) => outcomes.has(`${TARGET}:${y}`));
+
+  let k = 0;
+  let n = 0;
+  let lastYear = null;
+
+  for (const y of years) {
+    const res = predictForYear(predByYear, outcomes, y, mode, method, topN);
+    if (!res.pred) continue;
+    n += 1;
+    if (res.pred === outcomes.get(`${TARGET}:${y}`)) k += 1;
+    lastYear = y;
+  }
+
+  return { accuracy: n ? k / n : Number.NaN, backtestN: n, lastYear };
+}
+
+function pickBestMethodForMode(predByYear, outcomes, mode, topN) {
+  const results = ALGORITHMS.map((algo, index) => {
+    const backtest = backtestMode(predByYear, outcomes, mode, algo.id, topN);
+    return { algo, order: index, ...backtest };
+  });
   const viable = results.filter((r) => Number.isFinite(r.accuracy));
   if (!viable.length) return null;
   viable.sort((a, b) => {
@@ -84,43 +221,86 @@ function pickBestAlgorithm(results) {
   return viable[0];
 }
 
-function computeNowcast(predByYear, outcomes, algoResult) {
+function pickBestOverall(predByYear, outcomes) {
+  const candidates = [];
+
+  const bestAuto = pickBestMethodForMode(predByYear, outcomes, "auto_weighted", null);
+  if (bestAuto) {
+    candidates.push({
+      mode: "auto_weighted",
+      method: bestAuto.algo.id,
+      topN: null,
+      label: `Auto weighted ensemble (${bestAuto.algo.label})`,
+      backtest: bestAuto
+    });
+  }
+
+  for (const n of TOP_N_CHOICES) {
+    const bestWeighted = pickBestMethodForMode(predByYear, outcomes, "topn_weighted", n);
+    if (bestWeighted) {
+      candidates.push({
+        mode: "topn_weighted",
+        method: bestWeighted.algo.id,
+        topN: n,
+        label: `Top-${n} weighted ensemble (${bestWeighted.algo.label})`,
+        backtest: bestWeighted
+      });
+    }
+  }
+
+  for (const n of TOP_N_CHOICES) {
+    const bestMajority = pickBestMethodForMode(predByYear, outcomes, "topn_majority", n);
+    if (bestMajority) {
+      candidates.push({
+        mode: "topn_majority",
+        method: bestMajority.algo.id,
+        topN: n,
+        label: `Top-${n} majority vote (${bestMajority.algo.label})`,
+        backtest: bestMajority
+      });
+    }
+  }
+
+  const bestSingle = pickBestMethodForMode(predByYear, outcomes, "best_single", 1);
+  if (bestSingle) {
+    candidates.push({
+      mode: "best_single",
+      method: bestSingle.algo.id,
+      topN: 1,
+      label: `Best single groundhog (${bestSingle.algo.label})`,
+      backtest: bestSingle
+    });
+  }
+
+  const majorityAll = backtestMode(predByYear, outcomes, "majority_all", null, null);
+  if (Number.isFinite(majorityAll.accuracy)) {
+    candidates.push({
+      mode: "majority_all",
+      method: null,
+      topN: null,
+      label: "Majority vote (all groundhogs)",
+      backtest: majorityAll
+    });
+  }
+
+  const viable = candidates.filter(c => Number.isFinite(c.backtest?.accuracy));
+  if (!viable.length) return null;
+
+  viable.sort((a, b) => {
+    if (b.backtest.accuracy !== a.backtest.accuracy) return b.backtest.accuracy - a.backtest.accuracy;
+    if (b.backtest.backtestN !== a.backtest.backtestN) return b.backtest.backtestN - a.backtest.backtestN;
+    return a.label.localeCompare(b.label);
+  });
+
+  return viable[0];
+}
+
+function computeNowcast(predByYear, outcomes, mode, method, topN) {
   const years = Array.from(predByYear.keys());
   if (!years.length) return null;
   const latestYear = Math.max(...years);
-  const { weights } = trainWeights(predByYear, outcomes, TARGET, latestYear, algoResult.algo.id, DEFAULT_OPTS);
-
-  const preds = predByYear.get(latestYear) ?? [];
-  let earlyWeight = 0;
-  let totalWeight = 0;
-  let used = 0;
-  let usedWeighted = false;
-
-  for (const p of preds) {
-    const w = weights.get(p.groundhogSlug);
-    if (!w) continue;
-    used++;
-    totalWeight += w;
-    usedWeighted = true;
-    const predOut = predictionToOutcome(!!p.shadow);
-    if (predOut === "EARLY_SPRING") earlyWeight += w;
-  }
-
-  if (!totalWeight && preds.length) {
-    // Fallback: simple majority vote when weights are unavailable.
-    used = preds.length;
-    totalWeight = preds.length;
-    earlyWeight = preds.reduce((acc, p) => {
-      const predOut = predictionToOutcome(!!p.shadow);
-      return acc + (predOut === "EARLY_SPRING" ? 1 : 0);
-    }, 0);
-  }
-
-  const pEarly = totalWeight ? earlyWeight / totalWeight : 0.5;
-  const pred = pEarly >= 0.5 ? "EARLY_SPRING" : "LONG_WINTER";
-  const certainty = totalWeight ? Math.max(pEarly, 1 - pEarly) : Number.NaN;
-
-  return { latestYear, pred, certainty, used, totalWeight, usedWeighted };
+  const res = predictForYear(predByYear, outcomes, latestYear, mode, method, topN);
+  return { latestYear, ...res };
 }
 
 function computeLeaderboard(predByYear, outcomes, groundhogDir) {
@@ -158,7 +338,7 @@ function computeLeaderboard(predByYear, outcomes, groundhogDir) {
     n: s.n,
     k: s.k,
     accuracy: s.n ? s.k / s.n : Number.NaN
-  }));
+  })).filter(r => r.n >= MIN_OBS);
 
   rows.sort((a, b) => {
     if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
@@ -232,6 +412,7 @@ async function run() {
     const outcomesRows = parseCSV(outcomesText);
     const outcomes = indexOutcomes(outcomesRows);
     const predByYear = indexPredictions(predObj);
+    const nameBySlug = new Map((groundhogDir?.groundhogs ?? []).map(g => [g.slug, g.name || g.slug]));
 
     const leaderboardRows = computeLeaderboard(predByYear, outcomes, groundhogDir);
     renderLeaderboard(leaderboardRows);
@@ -240,34 +421,22 @@ async function run() {
     const minYear = scoredYears.length ? Math.min(...scoredYears) : null;
     const maxYear = scoredYears.length ? Math.max(...scoredYears) : null;
     const leaderboardMeta = scoredYears.length
-      ? `Computed from groundhog-day.com predictions vs NOAA CAG outcomes. Scored years: ${minYear}–${maxYear}.`
-      : "Computed from groundhog-day.com predictions vs NOAA CAG outcomes.";
+      ? `Computed from groundhog-day.com predictions vs NOAA Climate-at-a-Glance outcomes (CONUS Feb+Mar). Min obs: ${MIN_OBS}. Scored years: ${minYear}–${maxYear}.`
+      : `Computed from groundhog-day.com predictions vs NOAA Climate-at-a-Glance outcomes (CONUS Feb+Mar). Min obs: ${MIN_OBS}.`;
     $("leaderboardMeta").textContent = leaderboardMeta;
 
     const isSample = String(predObj.updatedAt || "").includes("SAMPLE");
     if (isSample) {
-      setStatus("Sample data loaded — run npm run update:predictions for the full leaderboard.");
+      setStatus("Sample data loaded — run python3 scripts/update_predictions.py for the full leaderboard.");
     }
 
-    const results = evaluateAlgorithms(predByYear, outcomes);
-    let best = pickBestAlgorithm(results);
-    let usedFallback = false;
-
-    if (!best) {
-      usedFallback = true;
-      const algo = ALGORITHMS[0];
-      best = {
-        algo,
-        rows: [],
-        last: null,
-        accuracy: Number.NaN,
-        backtestN: 0,
-        lastYear: null,
-        order: 0
-      };
+    const chosen = pickBestOverall(predByYear, outcomes);
+    if (!chosen) {
+      setStatus("Backtest unavailable — no algorithm could be evaluated.");
+      return;
     }
 
-    const nowcast = computeNowcast(predByYear, outcomes, best);
+    const nowcast = computeNowcast(predByYear, outcomes, chosen.mode, chosen.method, chosen.topN);
     if (!nowcast) {
       setStatus("No prediction data available.");
       return;
@@ -278,19 +447,30 @@ async function run() {
     document.body.dataset.outcome = nowcast.pred;
 
     $("certainty").textContent = fmtPct(nowcast.certainty, 1);
-    $("algoAccuracy").textContent = fmtPct(best.accuracy);
+    $("algoAccuracy").textContent = fmtPct(chosen.backtest.accuracy);
     $("callYear").textContent = `Forecast for ${nowcast.latestYear}`;
-    $("algoName").textContent = best.algo.label;
-    $("algoAcc").textContent = Number.isFinite(best.accuracy)
-      ? `Backtest accuracy: ${fmtPct(best.accuracy)} (n=${best.backtestN}, through ${best.lastYear})`
-      : "Backtest unavailable (outcomes missing).";
+    $("algoName").textContent = chosen.label || "—";
     $("predictionYear").textContent = `${nowcast.latestYear}`;
-    $("voterCount").textContent = `${nowcast.used}`;
-    $("meta").textContent = usedFallback
-      ? "Backtest unavailable — showing default algorithm."
-      : (nowcast.usedWeighted
-        ? "Prediction uses the highest-accuracy algorithm from the backtest set."
-        : "Backtest available, but weights missing — using simple majority vote.");
+    if (nowcast.totalPreds) {
+      const usedText = nowcast.used !== nowcast.totalPreds ? ` (${nowcast.used} used)` : "";
+      $("voterCount").textContent = `${nowcast.totalPreds} total${usedText}`;
+    } else {
+      $("voterCount").textContent = `${nowcast.used}`;
+    }
+
+    let metaText = "Algorithm selected automatically by backtest accuracy.";
+
+    if (chosen.mode === "best_single" && nowcast.selectedSlug) {
+      const name = nameBySlug.get(nowcast.selectedSlug) || nowcast.selectedSlug;
+      const accText = Number.isFinite(nowcast.selectedAcc) ? fmtPct(nowcast.selectedAcc) : "—";
+      metaText = `Selected ${name} (${accText} historical accuracy, n=${nowcast.selectedN}).`;
+    }
+
+    if ((chosen.mode === "auto_weighted" || chosen.mode === "topn_weighted") && !nowcast.usedWeighted) {
+      metaText = "Weights unavailable for this year — using simple majority vote.";
+    }
+
+    $("meta").textContent = metaText;
 
     if (!isSample) setStatus("");
   } catch (err) {
