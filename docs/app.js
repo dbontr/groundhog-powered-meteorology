@@ -68,10 +68,15 @@ function fmtPctValue(x, digits = 1) {
   return `${x.toFixed(useDigits)}%`;
 }
 
-function calibrateCertainty(consensus, accuracy) {
+function calibrateCertainty(consensus, accuracy, backtestN) {
   if (!Number.isFinite(consensus)) return consensus;
   if (!Number.isFinite(accuracy)) return consensus;
-  const skill = Math.max(0, Math.min(1, 2 * accuracy - 1));
+  let accAdj = accuracy;
+  if (Number.isFinite(backtestN) && backtestN > 0) {
+    // Shrink with a conservative Beta(1,1) prior to avoid 100% certainty on small samples.
+    accAdj = (accuracy * backtestN + 1) / (backtestN + 2);
+  }
+  const skill = Math.max(0, Math.min(1, 2 * accAdj - 1));
   const centered = consensus - 0.5;
   const scaled = 0.5 + centered * skill;
   return Math.max(0, Math.min(1, scaled));
@@ -1027,7 +1032,7 @@ async function run() {
     indicator.textContent = outcomeLabel(nowcast.pred);
     document.body.dataset.outcome = nowcast.pred;
 
-    const displayCertainty = calibrateCertainty(nowcast.certainty, chosen.backtest.accuracy);
+    const displayCertainty = calibrateCertainty(nowcast.certainty, chosen.backtest.accuracy, chosen.backtest.backtestN);
     $("certainty").textContent = fmtPct(displayCertainty, 1);
     $("algoAccuracy").textContent = fmtPct(chosen.backtest.accuracy);
     $("callYear").textContent = `Forecast for ${nowcast.latestYear}`;
@@ -1055,7 +1060,7 @@ async function run() {
       metaText = "Weights unavailable for this year — using simple majority vote.";
     }
 
-    metaText += " Certainty scales consensus by historical accuracy.";
+    metaText += " Certainty scales consensus by historical accuracy (shrunken for sample size).";
     $("meta").textContent = metaText;
 
     if (!isSample) setStatus("");
