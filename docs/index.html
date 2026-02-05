@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Groundhog Forecast Desk</title>
-  <link rel="stylesheet" href="styles.css?v=2026-02-05-03" />
-  <meta name="description" content="Groundhog forecast with a dynamic super algorithm and a computed accuracy leaderboard." />
+  <link rel="stylesheet" href="styles.css?v=2026-02-05-07" />
+  <meta name="description" content="Groundhog forecast with a computed accuracy leaderboard." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
@@ -13,7 +13,7 @@
 <body>
   <header class="site-header">
     <div class="brand">Groundhog Forecast Desk</div>
-    <p class="tagline">We fuse every technique into one dynamic super algorithm and publish the call.</p>
+    <p class="tagline">We listened to your favorite groundhogs and published the call.</p>
   </header>
 
   <main>
@@ -36,7 +36,7 @@
 
       <div class="stats">
         <div class="stat">
-          <span class="stat-label">Weather Station Baseline</span>
+          <span class="stat-label">Weather Station Baseline (Seasonal)</span>
           <span id="stationAccuracy" class="stat-value">—</span>
           <span id="stationDetail" class="stat-sub"></span>
         </div>
@@ -45,8 +45,9 @@
           <span id="predictionYear" class="stat-value">—</span>
         </div>
         <div class="stat">
-          <span class="stat-label">Groundhogs</span>
+          <span class="stat-label">Listed Groundhogs</span>
           <span id="voterCount" class="stat-value">—</span>
+          <span id="voterDetail" class="stat-sub"></span>
         </div>
         <div id="status" class="status"></div>
       </div>
@@ -74,6 +75,6 @@
     </p>
   </footer>
 
-  <script type="module" src="app.js?v=2026-02-05-03"></script>
+  <script type="module" src="app.js?v=2026-02-05-07"></script>
 </body>
 </html>

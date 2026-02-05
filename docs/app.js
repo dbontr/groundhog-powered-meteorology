@@ -1,6 +1,6 @@
 import { parseCSV } from "./lib/stats.js";
 import { indexOutcomes, indexPredictions, predictionToOutcome } from "./lib/backtest.js";
-import { GOAL_ACCURACY, buildDynamicSuperModel, computeDynamicSuperNowcast } from "./lib/fusion.js";
+import { buildDynamicSuperModel, computeDynamicSuperNowcast } from "./lib/fusion.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -91,6 +91,13 @@ function computeBaselineAccuracy(outcomes, target, years) {
   if (!total) return { accuracy: Number.NaN, majorityOutcome: "", total: 0 };
   const majorityOutcome = early >= late ? "EARLY_SPRING" : "LONG_WINTER";
   return { accuracy: Math.max(early, late) / total, majorityOutcome, total };
+}
+
+function computeStationBaseline() {
+  return {
+    accuracy: 1 / 3,
+    detailHtml: "Seasonal outlooks use terciles; equal-chance baseline is 33.3%. Source: <a href=\"https://www.cpc.ncep.noaa.gov/products/predictions/long_range/seasonal_info.php\" target=\"_blank\" rel=\"noopener\">NOAA CPC</a>."
+  };
 }
 
 function computeLeaderboard(predByYear, outcomes, groundhogDir, minObs = MIN_OBS) {
@@ -218,8 +225,11 @@ async function run() {
     };
     const updateLeaderboard = () => {
       const minObs = allowNewbies ? 1 : LEADERBOARD_DEFAULT_MIN_OBS;
-      renderLeaderboard(computeLeaderboard(predByYear, outcomes, groundhogDir, minObs));
+      const rows = computeLeaderboard(predByYear, outcomes, groundhogDir, minObs);
+      renderLeaderboard(rows);
       $("leaderboardMeta").textContent = buildLeaderboardMeta(minObs);
+      const voterCount = $("voterCount");
+      if (voterCount) voterCount.textContent = `${rows.length}`;
       if (leaderboardButton) {
         leaderboardButton.textContent = allowNewbies ? "Hide Newbies" : "Allow Newbies";
         leaderboardButton.setAttribute("aria-pressed", String(allowNewbies));
@@ -234,13 +244,11 @@ async function run() {
       });
     }
 
-    const baseline = computeBaselineAccuracy(outcomes, TARGET_BASE, scoredYears);
-    $("stationAccuracy").textContent = fmtPct(baseline.accuracy);
+    const baseline = computeStationBaseline();
+    $("stationAccuracy").textContent = fmtPct(baseline.accuracy, 1);
     const stationDetail = $("stationDetail");
     if (stationDetail) {
-      stationDetail.textContent = baseline.majorityOutcome
-        ? `Climatology proxy: always predict ${outcomeLabel(baseline.majorityOutcome)}.`
-        : "";
+      stationDetail.innerHTML = baseline.detailHtml || "";
     }
 
     const isSample = String(predObj.updatedAt || "").includes("SAMPLE");
@@ -270,32 +278,13 @@ async function run() {
     $("algoAccuracy").textContent = fmtPct(model.backtest.accuracy);
     $("callYear").textContent = `Forecast for ${nowcast.latestYear}`;
     $("predictionYear").textContent = `${nowcast.latestYear}`;
-    if (nowcast.totalPreds) {
-      $("voterCount").textContent = `${nowcast.totalPreds} total`;
-    } else {
-      $("voterCount").textContent = `${nowcast.used}`;
+    const voterDetail = $("voterDetail");
+    const predCount = nowcast.totalPreds || nowcast.used;
+    if (voterDetail && Number.isFinite(predCount)) {
+      voterDetail.textContent = `Latest year predictions: ${predCount}.`;
     }
 
-    let metaText = "Dynamic super algorithm fuses multi-signal weights, recency, stability, and stacked learning.";
-    if (nowcast.method === "stacked") {
-      metaText = "Dynamic super algorithm used stacked fusion across the top-performing signal packs this year.";
-    } else if (nowcast.method === "blend") {
-      metaText = "Dynamic super algorithm used a weighted blend fallback (stacked confidence below gate).";
-    } else if (nowcast.method === "majority") {
-      metaText = "Dynamic super algorithm fell back to simple majority vote for this year.";
-    }
-
-    metaText += ` Goal accuracy: ${fmtPct(GOAL_ACCURACY, 0)}.`;
-    metaText += ` Backtest: ${fmtPct(model.backtest.accuracy)} across ${model.backtest.backtestN} years.`;
-    if (Number.isFinite(model.backtest.accuracy)) {
-      metaText += model.backtest.accuracy >= GOAL_ACCURACY
-        ? " Goal reached in backtest."
-        : " Goal not yet reached in backtest.";
-    }
-    if (model.id) {
-      metaText += ` Fusion profile: ${model.id}.`;
-    }
-    metaText += ` Calibrated confidence: ${fmtPct(calibratedCertainty, 1)} (scaled by historical accuracy).`;
+    const metaText = `Calibrated confidence: ${fmtPct(calibratedCertainty, 1)} (scaled by historical accuracy).`;
     $("meta").textContent = metaText;
 
     if (!isSample) setStatus("");
