@@ -23,6 +23,7 @@ body{
     radial-gradient(circle at 90% 0%, rgba(89, 180, 121, 0.28), transparent 45%),
     linear-gradient(180deg, #f7f1e5 0%, #efe7d8 100%);
   background-attachment: fixed;
+  overflow-x: hidden;
   min-height: 100vh;
   line-height: 1.45;
 }
