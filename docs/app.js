@@ -577,6 +577,58 @@ function metaBestDecayPredict(predByYear, outcomes, target, year, baseCandidates
   return { pred: cur.pred, certainty: best.acc, used: 1 };
 }
 
+function superEnsemblePredict(predByYear, outcomes, target, year, baseCandidates, cfg, cache) {
+  const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
+    .filter((y) => y < year && outcomes.has(`${target}:${y}`));
+  const windowStart = cfg.windowYears ? (year - cfg.windowYears) : null;
+  const lambda = cfg.halfLifeYears ? Math.log(2) / Math.max(1e-9, cfg.halfLifeYears) : null;
+
+  const scored = [];
+  for (const c of baseCandidates) {
+    let k = 0;
+    let n = 0;
+    for (const y of years) {
+      if (windowStart && y < windowStart) continue;
+      const res = getCandidatePrediction(cache, predByYear, outcomes, y, c);
+      if (!res?.pred) continue;
+      const w = lambda ? Math.exp(-lambda * (year - y)) : 1;
+      n += w;
+      if (res.pred === outcomes.get(`${target}:${y}`)) k += w;
+    }
+    if (!n) continue;
+    const acc = (k + 2) / (n + 4);
+    scored.push({ candidate: c, acc, n });
+  }
+
+  if (!scored.length) return { pred: "", certainty: Number.NaN, used: 0 };
+  scored.sort((a, b) => {
+    if (b.acc !== a.acc) return b.acc - a.acc;
+    return b.n - a.n;
+  });
+
+  const topK = Math.max(1, Math.min(scored.length, cfg.topK ?? 8));
+  const selected = scored.slice(0, topK);
+
+  let score = 0;
+  let totalAbs = 0;
+  let used = 0;
+  for (const s of selected) {
+    const cur = getCandidatePrediction(cache, predByYear, outcomes, year, s.candidate);
+    if (!cur?.pred) continue;
+    const p = Math.min(1 - 1e-6, Math.max(1e-6, s.acc));
+    const w = Math.log(p / (1 - p));
+    const vote = cur.pred === "EARLY_SPRING" ? 1 : -1;
+    score += w * vote;
+    totalAbs += Math.abs(w);
+    used += 1;
+  }
+
+  if (!totalAbs) return { pred: "", certainty: Number.NaN, used };
+  const pred = score >= 0 ? "EARLY_SPRING" : "LONG_WINTER";
+  const certainty = Math.min(1, Math.abs(score) / totalAbs);
+  return { pred, certainty, used };
+}
+
 function backtestMeta(predByYear, outcomes, target, baseCandidates, windowYears, strategy) {
   const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
     .filter((y) => outcomes.has(`${target}:${y}`));
@@ -610,6 +662,25 @@ function backtestMetaDecay(predByYear, outcomes, target, baseCandidates, halfLif
     const res = strategy === "best"
       ? metaBestDecayPredict(predByYear, outcomes, target, y, baseCandidates, halfLifeYears, cache)
       : metaWeightedDecayPredict(predByYear, outcomes, target, y, baseCandidates, halfLifeYears, cache);
+    if (!res.pred) continue;
+    n += 1;
+    if (res.pred === outcomes.get(`${target}:${y}`)) k += 1;
+    lastYear = y;
+  }
+
+  return { accuracy: n ? k / n : Number.NaN, backtestN: n, lastYear };
+}
+
+function backtestSuperEnsemble(predByYear, outcomes, target, baseCandidates, cfg) {
+  const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
+    .filter((y) => outcomes.has(`${target}:${y}`));
+  const cache = new Map();
+  let k = 0;
+  let n = 0;
+  let lastYear = null;
+
+  for (const y of years) {
+    const res = superEnsemblePredict(predByYear, outcomes, target, y, baseCandidates, cfg, cache);
     if (!res.pred) continue;
     n += 1;
     if (res.pred === outcomes.get(`${target}:${y}`)) k += 1;
@@ -821,6 +892,35 @@ function pickBestOverall(predByYear, outcomes) {
         });
       }
     }
+
+    for (const cfg of [
+      // Aggressive, recency-biased configs
+      { windowYears: 12, topK: 3 },
+      { windowYears: 18, topK: 5 },
+      { windowYears: 20, topK: 5 },
+      { halfLifeYears: 5, topK: 3 },
+      { halfLifeYears: 7, topK: 5 },
+      // Moderate fallbacks
+      { windowYears: 25, topK: 8 },
+      { halfLifeYears: 10, topK: 8 }
+    ]) {
+      const superBt = backtestSuperEnsemble(predByYear, outcomes, target, baseCandidates, cfg);
+      if (Number.isFinite(superBt.accuracy)) {
+        const labelParts = [];
+        if (cfg.windowYears) labelParts.push(`${cfg.windowYears}y window`);
+        if (cfg.halfLifeYears) labelParts.push(`half-life ${cfg.halfLifeYears}y`);
+        labelParts.push(`top-${cfg.topK}`);
+        candidates.push({
+          target,
+          mode: "super_ensemble",
+          algo: { key: `super_${cfg.windowYears ?? "hl" + cfg.halfLifeYears}_${cfg.topK}_${target}` },
+          topN: null,
+          label: `Super ensemble (${labelParts.join(", ")})${labelSuffix}`,
+          backtest: superBt,
+          meta: { type: "super", cfg, baseCandidates, target }
+        });
+      }
+    }
   }
 
   const viable = candidates.filter(c => Number.isFinite(c.backtest?.accuracy));
@@ -868,6 +968,23 @@ function computeStackedNowcast(predByYear, meta) {
   const latestYear = Math.max(...years);
   const preds = predByYear.get(latestYear) ?? [];
   const res = stackedPredict(meta.featureCache, latestYear, meta.windowYears, meta.opts);
+  return {
+    latestYear,
+    pred: res.pred,
+    certainty: res.certainty,
+    used: preds.length,
+    totalPreds: preds.length,
+    usedWeighted: true
+  };
+}
+
+function computeSuperNowcast(predByYear, outcomes, meta) {
+  const years = Array.from(predByYear.keys());
+  if (!years.length) return null;
+  const latestYear = Math.max(...years);
+  const preds = predByYear.get(latestYear) ?? [];
+  const cache = new Map();
+  const res = superEnsemblePredict(predByYear, outcomes, meta.target, latestYear, meta.baseCandidates, meta.cfg, cache);
   return {
     latestYear,
     pred: res.pred,
@@ -1022,7 +1139,9 @@ async function run() {
     const nowcast = chosen.meta
       ? (chosen.meta.type === "stacked"
         ? computeStackedNowcast(predByYear, chosen.meta)
-        : computeMetaNowcast(predByYear, outcomes, chosen.meta))
+        : chosen.meta.type === "super"
+          ? computeSuperNowcast(predByYear, outcomes, chosen.meta)
+          : computeMetaNowcast(predByYear, outcomes, chosen.meta))
       : computeNowcast(predByYear, outcomes, chosen.target, chosen.mode, chosen.algo, chosen.topN);
     if (!nowcast) {
       setStatus("No prediction data available.");
