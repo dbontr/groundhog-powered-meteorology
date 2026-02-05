@@ -6,6 +6,7 @@ const $ = (id) => document.getElementById(id);
 const TARGET_BASE = "US_CONUS_FEBMAR_MEAN_ANOM";
 const TARGET_MARCH = "US_CONUS_MAR_ANOM";
 const MIN_OBS = 20;
+const MIN_BACKTEST_GH = 20;
 const DEFAULT_OPTS = {
   minObs: MIN_OBS,
   betaPrior: [2, 2],
@@ -123,6 +124,11 @@ function majorityVote(preds, allowed = null) {
   const pred = early >= late ? "EARLY_SPRING" : "LONG_WINTER";
   const certainty = Math.max(early, late) / used;
   return { pred, certainty, used };
+}
+
+function hasMinGroundhogs(predByYear, year, minCount = MIN_BACKTEST_GH) {
+  const preds = predByYear.get(year) ?? [];
+  return preds.length >= minCount;
 }
 
 function majorityVoteWithFlips(preds, stats, minObs) {
@@ -302,7 +308,8 @@ function predictForYear(predByYear, outcomes, target, year, mode, algo, topN) {
 
 function backtestMode(predByYear, outcomes, target, mode, algo, topN) {
   const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
-    .filter((y) => outcomes.has(`${target}:${y}`));
+    .filter((y) => outcomes.has(`${target}:${y}`))
+    .filter((y) => hasMinGroundhogs(predByYear, y));
 
   let k = 0;
   let n = 0;
@@ -745,7 +752,8 @@ function superGatePredict(predByYear, outcomes, target, year, baseCandidates, cf
 
 function backtestMeta(predByYear, outcomes, target, baseCandidates, windowYears, strategy) {
   const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
-    .filter((y) => outcomes.has(`${target}:${y}`));
+    .filter((y) => outcomes.has(`${target}:${y}`))
+    .filter((y) => hasMinGroundhogs(predByYear, y));
   const cache = new Map();
   let k = 0;
   let n = 0;
@@ -766,7 +774,8 @@ function backtestMeta(predByYear, outcomes, target, baseCandidates, windowYears,
 
 function backtestMetaDecay(predByYear, outcomes, target, baseCandidates, halfLifeYears, strategy) {
   const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
-    .filter((y) => outcomes.has(`${target}:${y}`));
+    .filter((y) => outcomes.has(`${target}:${y}`))
+    .filter((y) => hasMinGroundhogs(predByYear, y));
   const cache = new Map();
   let k = 0;
   let n = 0;
@@ -806,7 +815,8 @@ function backtestSuperEnsemble(predByYear, outcomes, target, baseCandidates, cfg
 
 function backtestSuperStable(predByYear, outcomes, target, baseCandidates, cfg) {
   const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
-    .filter((y) => outcomes.has(`${target}:${y}`));
+    .filter((y) => outcomes.has(`${target}:${y}`))
+    .filter((y) => hasMinGroundhogs(predByYear, y));
   const cache = new Map();
   let k = 0;
   let n = 0;
@@ -825,7 +835,8 @@ function backtestSuperStable(predByYear, outcomes, target, baseCandidates, cfg) 
 
 function backtestHedge(predByYear, outcomes, target, baseCandidates, cfg) {
   const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
-    .filter((y) => outcomes.has(`${target}:${y}`));
+    .filter((y) => outcomes.has(`${target}:${y}`))
+    .filter((y) => hasMinGroundhogs(predByYear, y));
   const cache = new Map();
   let k = 0;
   let n = 0;
@@ -844,7 +855,8 @@ function backtestHedge(predByYear, outcomes, target, baseCandidates, cfg) {
 
 function backtestSuperGate(predByYear, outcomes, target, baseCandidates, cfg, gate) {
   const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
-    .filter((y) => outcomes.has(`${target}:${y}`));
+    .filter((y) => outcomes.has(`${target}:${y}`))
+    .filter((y) => hasMinGroundhogs(predByYear, y));
   const cache = new Map();
   let k = 0;
   let n = 0;
@@ -863,7 +875,7 @@ function backtestSuperGate(predByYear, outcomes, target, baseCandidates, cfg, ga
 
 function buildFeatureCache(predByYear, outcomes, target, baseCandidates) {
   const allYears = Array.from(predByYear.keys()).sort((a, b) => a - b);
-  const scoredYears = allYears.filter((y) => outcomes.has(`${target}:${y}`));
+  const scoredYears = allYears.filter((y) => outcomes.has(`${target}:${y}`) && hasMinGroundhogs(predByYear, y));
   const cache = new Map();
   const featuresByYear = new Map();
   const labelsByYear = new Map();
@@ -1399,12 +1411,13 @@ async function run() {
     const leaderboardRows = computeLeaderboard(predByYear, outcomes, groundhogDir);
     renderLeaderboard(leaderboardRows);
 
-    const scoredYears = Array.from(predByYear.keys()).filter((y) => outcomes.has(`${TARGET_BASE}:${y}`));
+    const scoredYears = Array.from(predByYear.keys())
+      .filter((y) => outcomes.has(`${TARGET_BASE}:${y}`) && hasMinGroundhogs(predByYear, y));
     const minYear = scoredYears.length ? Math.min(...scoredYears) : null;
     const maxYear = scoredYears.length ? Math.max(...scoredYears) : null;
     const leaderboardMeta = scoredYears.length
-      ? `Computed from groundhog-day.com predictions vs NOAA Climate-at-a-Glance outcomes (CONUS Feb+Mar). Min obs: ${MIN_OBS}. Scored years: ${minYear}–${maxYear}.`
-      : `Computed from groundhog-day.com predictions vs NOAA Climate-at-a-Glance outcomes (CONUS Feb+Mar). Min obs: ${MIN_OBS}.`;
+      ? `Computed from groundhog-day.com predictions vs NOAA Climate-at-a-Glance outcomes (CONUS Feb+Mar). Min obs: ${MIN_OBS}. Min groundhogs/year: ${MIN_BACKTEST_GH}. Scored years: ${minYear}–${maxYear}.`
+      : `Computed from groundhog-day.com predictions vs NOAA Climate-at-a-Glance outcomes (CONUS Feb+Mar). Min obs: ${MIN_OBS}. Min groundhogs/year: ${MIN_BACKTEST_GH}.`;
     $("leaderboardMeta").textContent = leaderboardMeta;
 
     const isSample = String(predObj.updatedAt || "").includes("SAMPLE");
