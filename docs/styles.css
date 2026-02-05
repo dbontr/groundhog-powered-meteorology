@@ -308,6 +308,7 @@ h2{
 .accuracy{
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 footer{
