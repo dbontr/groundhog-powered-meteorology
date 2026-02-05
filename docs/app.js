@@ -162,14 +162,22 @@ function renderLeaderboard(rows) {
   const table = $("leaderboard");
   if (!table) return;
 
+  const compact = window.matchMedia("(max-width: 520px)").matches;
+  const labels = {
+    rank: compact ? "#" : "Rank",
+    groundhog: compact ? "Groundhog" : "Groundhog",
+    accuracy: compact ? "Acc" : "Accuracy",
+    obs: compact ? "Obs" : "Observations"
+  };
+
   if (!rows.length) {
     table.innerHTML = `
       <thead>
         <tr>
-          <th class="rank">Rank</th>
-          <th>Groundhog</th>
-          <th>Accuracy</th>
-          <th>Observations</th>
+          <th class="rank">${labels.rank}</th>
+          <th>${labels.groundhog}</th>
+          <th>${labels.accuracy}</th>
+          <th>${labels.obs}</th>
         </tr>
       </thead>
       <tbody>
@@ -196,10 +204,10 @@ function renderLeaderboard(rows) {
   table.innerHTML = `
     <thead>
       <tr>
-        <th class="rank">Rank</th>
-        <th>Groundhog</th>
-        <th>Accuracy</th>
-        <th>Observations</th>
+        <th class="rank">${labels.rank}</th>
+        <th>${labels.groundhog}</th>
+        <th>${labels.accuracy}</th>
+        <th>${labels.obs}</th>
       </tr>
     </thead>
     <tbody>
@@ -238,11 +246,13 @@ async function run() {
       detail.textContent = parts.join(" ");
     };
     const buildLeaderboardMeta = (minObs) => {
+      const compact = window.matchMedia("(max-width: 520px)").matches;
       const obsText = minObs <= 1
         ? "Min observations: none (newbies included)."
         : `Min observations: ${minObs}.`;
       const yearText = scoredYears.length ? ` Scored years: ${minYear}–${maxYear}.` : "";
-      return `Computed from groundhog-day.com predictions vs NOAA Climate-at-a-Glance outcomes (CONUS Feb+Mar). ${obsText} Min groundhogs/year: ${MIN_BACKTEST_GH}.${yearText}`;
+      const keyText = compact ? " Key: #=Rank, Acc=Accuracy, Obs=Observations." : "";
+      return `Computed from groundhog-day.com predictions vs NOAA Climate-at-a-Glance outcomes (CONUS Feb+Mar). ${obsText} Min groundhogs/year: ${MIN_BACKTEST_GH}.${yearText}${keyText}`;
     };
     const updateLeaderboard = () => {
       const minObs = allowNewbies ? 1 : LEADERBOARD_DEFAULT_MIN_OBS;
@@ -263,6 +273,14 @@ async function run() {
         allowNewbies = !allowNewbies;
         updateLeaderboard();
       });
+    }
+
+    const compactQuery = window.matchMedia("(max-width: 520px)");
+    const refreshLeaderboard = () => updateLeaderboard();
+    if (compactQuery.addEventListener) {
+      compactQuery.addEventListener("change", refreshLeaderboard);
+    } else {
+      window.addEventListener("resize", refreshLeaderboard);
     }
 
     const baseline = computeStationBaseline();
