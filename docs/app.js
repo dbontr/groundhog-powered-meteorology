@@ -1461,8 +1461,7 @@ async function run() {
     $("algoName").textContent = chosen.label || "—";
     $("predictionYear").textContent = `${nowcast.latestYear}`;
     if (nowcast.totalPreds) {
-      const usedText = nowcast.used !== nowcast.totalPreds ? ` (${nowcast.used} used)` : "";
-      $("voterCount").textContent = `${nowcast.totalPreds} total${usedText}`;
+      $("voterCount").textContent = `${nowcast.totalPreds} total`;
     } else {
       $("voterCount").textContent = `${nowcast.used}`;
     }
