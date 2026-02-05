@@ -279,7 +279,7 @@ async function run() {
 
     const model = buildDynamicSuperModel(predByYear, outcomes, TARGET_BASE);
     if (!model) {
-      setStatus("Backtest unavailable — dynamic super algorithm could not be evaluated.");
+      setStatus("Backtest unavailable — model could not be evaluated.");
       return;
     }
 
@@ -298,9 +298,9 @@ async function run() {
     document.body.dataset.outcome = nowcast.pred;
 
     const displayCertainty = nowcast.certainty;
-    const calibratedCertainty = calibrateCertainty(nowcast.certainty, model.backtest.accuracy, model.backtest.backtestN);
     $("certainty").textContent = fmtPct(displayCertainty, 1);
-    $("algoAccuracy").textContent = fmtPct(model.backtest.accuracy);
+    const algoAccuracy = $("algoAccuracy");
+    if (algoAccuracy) algoAccuracy.textContent = fmtPct(model.backtest.accuracy);
     $("callYear").textContent = `Forecast for ${nowcast.latestYear}`;
     $("predictionYear").textContent = `${nowcast.latestYear}`;
     const predCount = nowcast.totalPreds || nowcast.used;

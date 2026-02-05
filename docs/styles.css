@@ -22,6 +22,7 @@ body{
     radial-gradient(circle at 10% 15%, rgba(242, 180, 92, 0.32), transparent 40%),
     radial-gradient(circle at 90% 0%, rgba(89, 180, 121, 0.28), transparent 45%),
     linear-gradient(180deg, #f7f1e5 0%, #efe7d8 100%);
+  background-attachment: fixed;
   min-height: 100vh;
   line-height: 1.45;
 }
@@ -227,7 +228,8 @@ main{
   padding: 6px 12px;
   border-radius: 999px;
   cursor: pointer;
-  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  box-shadow: 0 10px 24px rgba(31, 122, 79, 0.12);
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .toggle-button:hover{
@@ -240,9 +242,10 @@ main{
 }
 
 .toggle-button[data-active="true"]{
-  background: var(--accent);
-  border-color: var(--accent);
+  background: linear-gradient(135deg, var(--accent), #2aa86a);
+  border-color: transparent;
   color: #fff;
+  box-shadow: 0 14px 28px rgba(31, 122, 79, 0.3);
 }
 
 h2{
