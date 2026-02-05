@@ -240,9 +240,9 @@ main{
 }
 
 .toggle-button[data-active="true"]{
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--accent);
   border-color: var(--accent);
-  color: var(--ink);
+  color: #fff;
 }
 
 h2{

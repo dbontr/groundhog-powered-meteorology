@@ -235,7 +235,6 @@ async function run() {
       if (!detail) return;
       const parts = [];
       if (Number.isFinite(latestPredCount)) parts.push(`Latest year predictions: ${latestPredCount}.`);
-      if (Number.isFinite(leaderboardCount)) parts.push(`Leaderboard listed: ${leaderboardCount}.`);
       detail.textContent = parts.join(" ");
     };
     const buildLeaderboardMeta = (minObs) => {
@@ -310,8 +309,7 @@ async function run() {
       updateVoterDetail();
     }
 
-    const metaText = `Calibrated confidence: ${fmtPct(calibratedCertainty, 1)} (scaled by historical accuracy).`;
-    $("meta").textContent = metaText;
+    $("meta").textContent = "";
 
     if (!isSample) setStatus("");
   } catch (err) {
