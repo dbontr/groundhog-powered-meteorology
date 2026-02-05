@@ -223,7 +223,7 @@ async function run() {
     const predByYear = indexPredictions(predObj);
 
     const scoredYears = Array.from(predByYear.keys())
-      .filter((y) => outcomes.has(`${TARGET_BASE}:${y}`) && hasMinGroundhogs(predByYear, y));
+      .filter((y) => outcomes.has(`${TARGET_BASE}:${y}`));
     const minYear = scoredYears.length ? Math.min(...scoredYears) : null;
     const maxYear = scoredYears.length ? Math.max(...scoredYears) : null;
     const leaderboardButton = $("toggleNewbies");
