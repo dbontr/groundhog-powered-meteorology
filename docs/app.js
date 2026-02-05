@@ -1033,7 +1033,8 @@ async function run() {
     indicator.textContent = outcomeLabel(nowcast.pred);
     document.body.dataset.outcome = nowcast.pred;
 
-    const displayCertainty = calibrateCertainty(nowcast.certainty, chosen.backtest.accuracy, chosen.backtest.backtestN);
+    const displayCertainty = nowcast.certainty;
+    const calibratedCertainty = calibrateCertainty(nowcast.certainty, chosen.backtest.accuracy, chosen.backtest.backtestN);
     $("certainty").textContent = fmtPct(displayCertainty, 1);
     $("algoAccuracy").textContent = fmtPct(chosen.backtest.accuracy);
     $("callYear").textContent = `Forecast for ${nowcast.latestYear}`;
@@ -1061,7 +1062,7 @@ async function run() {
       metaText = "Weights unavailable for this year — using simple majority vote.";
     }
 
-    metaText += " Certainty scales consensus by historical accuracy (shrunken for sample size).";
+    metaText += ` Calibrated confidence: ${fmtPct(calibratedCertainty, 1)} (scaled by historical accuracy).`;
     $("meta").textContent = metaText;
 
     if (!isSample) setStatus("");
