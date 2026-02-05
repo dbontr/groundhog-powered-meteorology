@@ -629,6 +629,120 @@ function superEnsemblePredict(predByYear, outcomes, target, year, baseCandidates
   return { pred, certainty, used };
 }
 
+function superStablePredict(predByYear, outcomes, target, year, baseCandidates, cfg, cache) {
+  const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
+    .filter((y) => y < year && outcomes.has(`${target}:${y}`));
+  const windowStart = cfg.windowYears ? (year - cfg.windowYears) : null;
+  const lambda = cfg.halfLifeYears ? Math.log(2) / Math.max(1e-9, cfg.halfLifeYears) : null;
+
+  const scored = [];
+  const mid = Math.floor(years.length / 2);
+  const splitYear = years[mid] ?? null;
+
+  for (const c of baseCandidates) {
+    let k = 0;
+    let n = 0;
+    let kEarly = 0;
+    let nEarly = 0;
+    let kLate = 0;
+    let nLate = 0;
+
+    for (const y of years) {
+      if (windowStart && y < windowStart) continue;
+      const res = getCandidatePrediction(cache, predByYear, outcomes, y, c);
+      if (!res?.pred) continue;
+      const w = lambda ? Math.exp(-lambda * (year - y)) : 1;
+      n += w;
+      if (res.pred === outcomes.get(`${target}:${y}`)) k += w;
+
+      if (splitYear !== null && y < splitYear) {
+        nEarly += w;
+        if (res.pred === outcomes.get(`${target}:${y}`)) kEarly += w;
+      } else {
+        nLate += w;
+        if (res.pred === outcomes.get(`${target}:${y}`)) kLate += w;
+      }
+    }
+    if (!n) continue;
+    const acc = (k + 2) / (n + 4);
+    const accEarly = nEarly ? kEarly / nEarly : acc;
+    const accLate = nLate ? kLate / nLate : acc;
+    const stability = Math.max(0, 1 - Math.abs(accEarly - accLate));
+    scored.push({ candidate: c, acc, stability });
+  }
+
+  if (!scored.length) return { pred: "", certainty: Number.NaN, used: 0 };
+  scored.sort((a, b) => {
+    if (b.acc !== a.acc) return b.acc - a.acc;
+    return b.stability - a.stability;
+  });
+
+  const topK = Math.max(1, Math.min(scored.length, cfg.topK ?? 8));
+  const selected = scored.slice(0, topK);
+
+  let score = 0;
+  let totalAbs = 0;
+  let used = 0;
+  const power = cfg.stabilityPower ?? 1.0;
+
+  for (const s of selected) {
+    const cur = getCandidatePrediction(cache, predByYear, outcomes, year, s.candidate);
+    if (!cur?.pred) continue;
+    const p = Math.min(1 - 1e-6, Math.max(1e-6, s.acc));
+    const w = Math.log(p / (1 - p)) * Math.pow(s.stability, power);
+    const vote = cur.pred === "EARLY_SPRING" ? 1 : -1;
+    score += w * vote;
+    totalAbs += Math.abs(w);
+    used += 1;
+  }
+
+  if (!totalAbs) return { pred: "", certainty: Number.NaN, used };
+  const pred = score >= 0 ? "EARLY_SPRING" : "LONG_WINTER";
+  const certainty = Math.min(1, Math.abs(score) / totalAbs);
+  return { pred, certainty, used };
+}
+
+function hedgePredict(predByYear, outcomes, target, year, baseCandidates, cfg, cache) {
+  const superRes = superEnsemblePredict(predByYear, outcomes, target, year, baseCandidates, cfg, cache);
+  if (!superRes?.pred) return { pred: "", certainty: Number.NaN, used: 0 };
+  const bestSingle = predictForYear(predByYear, outcomes, target, year, "best_single", { method: "bayes" }, 1);
+  const majority = predictForYear(predByYear, outcomes, target, year, "majority_all", null, null);
+  if (!bestSingle?.pred || !majority?.pred) return superRes;
+
+  const wSuper = cfg.wSuper ?? 0.6;
+  const wBest = cfg.wBest ?? 0.3;
+  const wMaj = cfg.wMaj ?? 0.1;
+  const parts = [
+    { pred: superRes.pred, w: wSuper },
+    { pred: bestSingle.pred, w: wBest },
+    { pred: majority.pred, w: wMaj }
+  ];
+
+  let score = 0;
+  let totalAbs = 0;
+  for (const part of parts) {
+    const vote = part.pred === "EARLY_SPRING" ? 1 : -1;
+    score += part.w * vote;
+    totalAbs += Math.abs(part.w);
+  }
+  if (!totalAbs) return superRes;
+  const pred = score >= 0 ? "EARLY_SPRING" : "LONG_WINTER";
+  const certainty = Math.min(1, Math.abs(score) / totalAbs);
+  return { pred, certainty, used: parts.length };
+}
+
+function superGatePredict(predByYear, outcomes, target, year, baseCandidates, cfg, gate, cache) {
+  const res = superEnsemblePredict(predByYear, outcomes, target, year, baseCandidates, cfg, cache);
+  if (!res.pred) return res;
+  if (res.certainty >= gate) return res;
+
+  // Fallback to best single (historical champ)
+  const bestAlgo = { key: "gate_fallback_bayes", method: "bayes" };
+  const fallback = predictForYear(predByYear, outcomes, target, year, "best_single", bestAlgo, 1);
+  if (!fallback?.pred) return res;
+  return { pred: fallback.pred, certainty: fallback.certainty, used: fallback.used, usedWeighted: false };
+}
+
 function backtestMeta(predByYear, outcomes, target, baseCandidates, windowYears, strategy) {
   const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
     .filter((y) => outcomes.has(`${target}:${y}`));
@@ -681,6 +795,63 @@ function backtestSuperEnsemble(predByYear, outcomes, target, baseCandidates, cfg
 
   for (const y of years) {
     const res = superEnsemblePredict(predByYear, outcomes, target, y, baseCandidates, cfg, cache);
+    if (!res.pred) continue;
+    n += 1;
+    if (res.pred === outcomes.get(`${target}:${y}`)) k += 1;
+    lastYear = y;
+  }
+
+  return { accuracy: n ? k / n : Number.NaN, backtestN: n, lastYear };
+}
+
+function backtestSuperStable(predByYear, outcomes, target, baseCandidates, cfg) {
+  const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
+    .filter((y) => outcomes.has(`${target}:${y}`));
+  const cache = new Map();
+  let k = 0;
+  let n = 0;
+  let lastYear = null;
+
+  for (const y of years) {
+    const res = superStablePredict(predByYear, outcomes, target, y, baseCandidates, cfg, cache);
+    if (!res.pred) continue;
+    n += 1;
+    if (res.pred === outcomes.get(`${target}:${y}`)) k += 1;
+    lastYear = y;
+  }
+
+  return { accuracy: n ? k / n : Number.NaN, backtestN: n, lastYear };
+}
+
+function backtestHedge(predByYear, outcomes, target, baseCandidates, cfg) {
+  const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
+    .filter((y) => outcomes.has(`${target}:${y}`));
+  const cache = new Map();
+  let k = 0;
+  let n = 0;
+  let lastYear = null;
+
+  for (const y of years) {
+    const res = hedgePredict(predByYear, outcomes, target, y, baseCandidates, cfg, cache);
+    if (!res.pred) continue;
+    n += 1;
+    if (res.pred === outcomes.get(`${target}:${y}`)) k += 1;
+    lastYear = y;
+  }
+
+  return { accuracy: n ? k / n : Number.NaN, backtestN: n, lastYear };
+}
+
+function backtestSuperGate(predByYear, outcomes, target, baseCandidates, cfg, gate) {
+  const years = Array.from(predByYear.keys()).sort((a, b) => a - b)
+    .filter((y) => outcomes.has(`${target}:${y}`));
+  const cache = new Map();
+  let k = 0;
+  let n = 0;
+  let lastYear = null;
+
+  for (const y of years) {
+    const res = superGatePredict(predByYear, outcomes, target, y, baseCandidates, cfg, gate, cache);
     if (!res.pred) continue;
     n += 1;
     if (res.pred === outcomes.get(`${target}:${y}`)) k += 1;
@@ -898,6 +1069,7 @@ function pickBestOverall(predByYear, outcomes) {
       { windowYears: 12, topK: 3 },
       { windowYears: 18, topK: 5 },
       { windowYears: 20, topK: 5 },
+      { halfLifeYears: 3, topK: 7 },
       { halfLifeYears: 5, topK: 3 },
       { halfLifeYears: 7, topK: 5 },
       // Moderate fallbacks
@@ -918,6 +1090,65 @@ function pickBestOverall(predByYear, outcomes) {
           label: `Super ensemble (${labelParts.join(", ")})${labelSuffix}`,
           backtest: superBt,
           meta: { type: "super", cfg, baseCandidates, target }
+        });
+      }
+    }
+
+    // Stability-penalized super-ensemble
+    for (const cfg of [
+      { halfLifeYears: 3, topK: 7, stabilityPower: 1.0 },
+      { windowYears: 20, topK: 5, stabilityPower: 1.0 }
+    ]) {
+      const stable = backtestSuperStable(predByYear, outcomes, target, baseCandidates, cfg);
+      if (Number.isFinite(stable.accuracy)) {
+        const labelParts = [];
+        if (cfg.windowYears) labelParts.push(`${cfg.windowYears}y window`);
+        if (cfg.halfLifeYears) labelParts.push(`half-life ${cfg.halfLifeYears}y`);
+        labelParts.push(`top-${cfg.topK}`);
+        candidates.push({
+          target,
+          mode: "super_stable",
+          algo: { key: `super_stable_${cfg.windowYears ?? "hl" + cfg.halfLifeYears}_${cfg.topK}_${target}` },
+          topN: null,
+          label: `Super stable (${labelParts.join(", ")})${labelSuffix}`,
+          backtest: stable,
+          meta: { type: "super_stable", cfg, baseCandidates, target }
+        });
+      }
+    }
+
+    // Hedge ensemble: super + best single + majority
+    for (const cfg of [
+      { halfLifeYears: 3, topK: 7, wSuper: 0.6, wBest: 0.3, wMaj: 0.1 }
+    ]) {
+      const hedge = backtestHedge(predByYear, outcomes, target, baseCandidates, cfg);
+      if (Number.isFinite(hedge.accuracy)) {
+        candidates.push({
+          target,
+          mode: "hedge",
+          algo: { key: `hedge_${cfg.halfLifeYears ?? cfg.windowYears}_${cfg.topK}_${target}` },
+          topN: null,
+          label: `Hedge ensemble (super/best/majority)${labelSuffix}`,
+          backtest: hedge,
+          meta: { type: "hedge", cfg, baseCandidates, target }
+        });
+      }
+    }
+
+    // Gated super-ensemble: only trust if confidence passes threshold, else best single.
+    for (const gateCfg of [
+      { cfg: { halfLifeYears: 5, topK: 3 }, gate: 0.55 }
+    ]) {
+      const gated = backtestSuperGate(predByYear, outcomes, target, baseCandidates, gateCfg.cfg, gateCfg.gate);
+      if (Number.isFinite(gated.accuracy)) {
+        candidates.push({
+          target,
+          mode: "super_gate",
+          algo: { key: `super_gate_${gateCfg.cfg.halfLifeYears}_${gateCfg.cfg.topK}_${gateCfg.gate}_${target}` },
+          topN: null,
+          label: `Super ensemble gate (half-life ${gateCfg.cfg.halfLifeYears}y, top-${gateCfg.cfg.topK}, gate ${Math.round(gateCfg.gate * 100)}%)${labelSuffix}`,
+          backtest: gated,
+          meta: { type: "super_gate", cfg: gateCfg.cfg, gate: gateCfg.gate, baseCandidates, target }
         });
       }
     }
@@ -985,6 +1216,57 @@ function computeSuperNowcast(predByYear, outcomes, meta) {
   const preds = predByYear.get(latestYear) ?? [];
   const cache = new Map();
   const res = superEnsemblePredict(predByYear, outcomes, meta.target, latestYear, meta.baseCandidates, meta.cfg, cache);
+  return {
+    latestYear,
+    pred: res.pred,
+    certainty: res.certainty,
+    used: preds.length,
+    totalPreds: preds.length,
+    usedWeighted: true
+  };
+}
+
+function computeSuperGateNowcast(predByYear, outcomes, meta) {
+  const years = Array.from(predByYear.keys());
+  if (!years.length) return null;
+  const latestYear = Math.max(...years);
+  const preds = predByYear.get(latestYear) ?? [];
+  const cache = new Map();
+  const res = superGatePredict(predByYear, outcomes, meta.target, latestYear, meta.baseCandidates, meta.cfg, meta.gate, cache);
+  return {
+    latestYear,
+    pred: res.pred,
+    certainty: res.certainty,
+    used: preds.length,
+    totalPreds: preds.length,
+    usedWeighted: true
+  };
+}
+
+function computeSuperStableNowcast(predByYear, outcomes, meta) {
+  const years = Array.from(predByYear.keys());
+  if (!years.length) return null;
+  const latestYear = Math.max(...years);
+  const preds = predByYear.get(latestYear) ?? [];
+  const cache = new Map();
+  const res = superStablePredict(predByYear, outcomes, meta.target, latestYear, meta.baseCandidates, meta.cfg, cache);
+  return {
+    latestYear,
+    pred: res.pred,
+    certainty: res.certainty,
+    used: preds.length,
+    totalPreds: preds.length,
+    usedWeighted: true
+  };
+}
+
+function computeHedgeNowcast(predByYear, outcomes, meta) {
+  const years = Array.from(predByYear.keys());
+  if (!years.length) return null;
+  const latestYear = Math.max(...years);
+  const preds = predByYear.get(latestYear) ?? [];
+  const cache = new Map();
+  const res = hedgePredict(predByYear, outcomes, meta.target, latestYear, meta.baseCandidates, meta.cfg, cache);
   return {
     latestYear,
     pred: res.pred,
@@ -1139,9 +1421,15 @@ async function run() {
     const nowcast = chosen.meta
       ? (chosen.meta.type === "stacked"
         ? computeStackedNowcast(predByYear, chosen.meta)
-        : chosen.meta.type === "super"
-          ? computeSuperNowcast(predByYear, outcomes, chosen.meta)
-          : computeMetaNowcast(predByYear, outcomes, chosen.meta))
+        : chosen.meta.type === "super_gate"
+          ? computeSuperGateNowcast(predByYear, outcomes, chosen.meta)
+          : chosen.meta.type === "super_stable"
+            ? computeSuperStableNowcast(predByYear, outcomes, chosen.meta)
+            : chosen.meta.type === "hedge"
+              ? computeHedgeNowcast(predByYear, outcomes, chosen.meta)
+          : chosen.meta.type === "super"
+            ? computeSuperNowcast(predByYear, outcomes, chosen.meta)
+            : computeMetaNowcast(predByYear, outcomes, chosen.meta))
       : computeNowcast(predByYear, outcomes, chosen.target, chosen.mode, chosen.algo, chosen.topN);
     if (!nowcast) {
       setStatus("No prediction data available.");
