@@ -696,8 +696,9 @@ def weighted_blend_predict(feature_cache, year, config_idxs, opts):
         used += 1
     if not total_abs:
         return {"pred": "", "certainty": float("nan"), "used": 0}
-    pred = "EARLY_SPRING" if score >= 0 else "LONG_WINTER"
-    certainty = min(1.0, abs(score) / total_abs)
+    ratio = score / total_abs
+    pred = "EARLY_SPRING" if ratio >= 0 else "LONG_WINTER"
+    certainty = min(1.0, abs(ratio))
     return {"pred": pred, "certainty": certainty, "used": used}
 
 

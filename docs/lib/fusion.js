@@ -219,6 +219,7 @@ function hasMinGroundhogs(predByYear, year, minCount = DEFAULT_MIN_BACKTEST_GH) 
   return preds.length >= minCount;
 }
 
+
 function majorityVote(preds) {
   let early = 0;
   let late = 0;
@@ -635,8 +636,9 @@ function weightedBlendPredict(featureCache, year, configIdxs, opts = {}) {
   }
 
   if (!totalAbs) return { pred: "", certainty: Number.NaN, used };
-  const pred = score >= 0 ? "EARLY_SPRING" : "LONG_WINTER";
-  const certainty = Math.min(1, Math.abs(score) / totalAbs);
+  const ratio = score / totalAbs;
+  const pred = ratio >= 0 ? "EARLY_SPRING" : "LONG_WINTER";
+  const certainty = Math.min(1, Math.abs(ratio));
   return { pred, certainty, used };
 }
 

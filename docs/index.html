@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Groundhog Forecast Desk</title>
-  <link rel="stylesheet" href="styles.css?v=2026-02-05-07" />
+  <title>Groundhog Powered Meteorology</title>
+  <link rel="stylesheet" href="styles.css?v=2026-02-05-09" />
   <meta name="description" content="Groundhog forecast with a computed accuracy leaderboard." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,7 +12,7 @@
 </head>
 <body>
   <header class="site-header">
-    <div class="brand">Groundhog Forecast Desk</div>
+    <div class="brand">Groundhog Powered Meteorology</div>
     <p class="tagline">We listened to your favorite groundhogs and published the call.</p>
   </header>
 
@@ -27,7 +27,7 @@
             <span id="certainty" class="metric-value">—</span>
           </div>
           <div class="metric">
-            <span class="metric-label">Fusion Accuracy</span>
+            <span class="metric-label">Accuracy</span>
             <span id="algoAccuracy" class="metric-value">—</span>
           </div>
         </div>
@@ -36,7 +36,7 @@
 
       <div class="stats">
         <div class="stat">
-          <span class="stat-label">Weather Station Baseline (Seasonal)</span>
+          <span class="stat-label">Weather Station Baseline (10-day+)</span>
           <span id="stationAccuracy" class="stat-value">—</span>
           <span id="stationDetail" class="stat-sub"></span>
         </div>
@@ -45,7 +45,7 @@
           <span id="predictionYear" class="stat-value">—</span>
         </div>
         <div class="stat">
-          <span class="stat-label">Listed Groundhogs</span>
+          <span class="stat-label">Total Groundhogs</span>
           <span id="voterCount" class="stat-value">—</span>
           <span id="voterDetail" class="stat-sub"></span>
         </div>
@@ -75,6 +75,6 @@
     </p>
   </footer>
 
-  <script type="module" src="app.js?v=2026-02-05-07"></script>
+  <script type="module" src="app.js?v=2026-02-05-09"></script>
 </body>
 </html>

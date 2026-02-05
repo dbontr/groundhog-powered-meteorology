@@ -95,8 +95,8 @@ function computeBaselineAccuracy(outcomes, target, years) {
 
 function computeStationBaseline() {
   return {
-    accuracy: 1 / 3,
-    detailHtml: "Seasonal outlooks use terciles; equal-chance baseline is 33.3%. Source: <a href=\"https://www.cpc.ncep.noaa.gov/products/predictions/long_range/seasonal_info.php\" target=\"_blank\" rel=\"noopener\">NOAA CPC</a>."
+    accuracy: 0.5,
+    detailHtml: "NOAA NESDIS education notes that a 10-day—or longer—forecast is only right about half the time. Source: <a href=\"https://www.nesdis.noaa.gov/node/18131\" target=\"_blank\" rel=\"noopener\">NOAA NESDIS</a>."
   };
 }
 
@@ -144,6 +144,18 @@ function computeLeaderboard(predByYear, outcomes, groundhogDir, minObs = MIN_OBS
   });
 
   return rows;
+}
+
+function countTotalGroundhogs(groundhogDir, predByYear) {
+  const list = groundhogDir?.groundhogs;
+  if (Array.isArray(list) && list.length) return list.length;
+  const seen = new Set();
+  for (const preds of predByYear.values()) {
+    for (const p of preds) {
+      if (p?.groundhogSlug) seen.add(p.groundhogSlug);
+    }
+  }
+  return seen.size;
 }
 
 function renderLeaderboard(rows) {
@@ -216,6 +228,16 @@ async function run() {
     const maxYear = scoredYears.length ? Math.max(...scoredYears) : null;
     const leaderboardButton = $("toggleNewbies");
     let allowNewbies = false;
+    let leaderboardCount = 0;
+    let latestPredCount = null;
+    const updateVoterDetail = () => {
+      const detail = $("voterDetail");
+      if (!detail) return;
+      const parts = [];
+      if (Number.isFinite(latestPredCount)) parts.push(`Latest year predictions: ${latestPredCount}.`);
+      if (Number.isFinite(leaderboardCount)) parts.push(`Leaderboard listed: ${leaderboardCount}.`);
+      detail.textContent = parts.join(" ");
+    };
     const buildLeaderboardMeta = (minObs) => {
       const obsText = minObs <= 1
         ? "Min observations: none (newbies included)."
@@ -228,8 +250,8 @@ async function run() {
       const rows = computeLeaderboard(predByYear, outcomes, groundhogDir, minObs);
       renderLeaderboard(rows);
       $("leaderboardMeta").textContent = buildLeaderboardMeta(minObs);
-      const voterCount = $("voterCount");
-      if (voterCount) voterCount.textContent = `${rows.length}`;
+      leaderboardCount = rows.length;
+      updateVoterDetail();
       if (leaderboardButton) {
         leaderboardButton.textContent = allowNewbies ? "Hide Newbies" : "Allow Newbies";
         leaderboardButton.setAttribute("aria-pressed", String(allowNewbies));
@@ -262,6 +284,10 @@ async function run() {
       return;
     }
 
+    const totalGroundhogs = countTotalGroundhogs(groundhogDir, predByYear);
+    const voterCount = $("voterCount");
+    if (voterCount) voterCount.textContent = `${totalGroundhogs}`;
+
     const nowcast = computeDynamicSuperNowcast(predByYear, model);
     if (!nowcast || !nowcast.pred) {
       setStatus("No prediction data available.");
@@ -278,10 +304,10 @@ async function run() {
     $("algoAccuracy").textContent = fmtPct(model.backtest.accuracy);
     $("callYear").textContent = `Forecast for ${nowcast.latestYear}`;
     $("predictionYear").textContent = `${nowcast.latestYear}`;
-    const voterDetail = $("voterDetail");
     const predCount = nowcast.totalPreds || nowcast.used;
-    if (voterDetail && Number.isFinite(predCount)) {
-      voterDetail.textContent = `Latest year predictions: ${predCount}.`;
+    if (Number.isFinite(predCount)) {
+      latestPredCount = predCount;
+      updateVoterDetail();
     }
 
     const metaText = `Calibrated confidence: ${fmtPct(calibratedCertainty, 1)} (scaled by historical accuracy).`;
