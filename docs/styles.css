@@ -15,6 +15,10 @@
 
 *{ box-sizing: border-box; }
 html, body{ margin:0; padding:0; }
+html{
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 body{
   font-family: var(--body);
   color: var(--ink);
@@ -62,7 +66,7 @@ a{ color: var(--accent); }
 .site-header{
   max-width: 1100px;
   margin: 0 auto;
-  padding: 28px 18px 8px;
+  padding: 28px max(18px, env(safe-area-inset-right)) 8px max(18px, env(safe-area-inset-left));
 }
 
 .brand{
@@ -81,7 +85,7 @@ a{ color: var(--accent); }
 main{
   max-width: 1100px;
   margin: 0 auto;
-  padding: 10px 18px 44px;
+  padding: 10px max(18px, env(safe-area-inset-right)) 44px max(18px, env(safe-area-inset-left));
   display: grid;
   gap: 18px;
 }
@@ -299,7 +303,7 @@ h2{
 footer{
   max-width: 1100px;
   margin: 0 auto;
-  padding: 0 18px 28px;
+  padding: 0 max(18px, env(safe-area-inset-right)) 28px max(18px, env(safe-area-inset-left));
   color: var(--muted);
   font-size: 12px;
 }
