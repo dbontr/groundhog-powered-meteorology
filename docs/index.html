@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Groundhog Forecast Desk</title>
-  <link rel="stylesheet" href="styles.css?v=2026-02-04-13" />
-  <meta name="description" content="Groundhog forecast with the most accurate algorithm and a computed accuracy leaderboard." />
+  <link rel="stylesheet" href="styles.css?v=2026-02-05-03" />
+  <meta name="description" content="Groundhog forecast with a dynamic super algorithm and a computed accuracy leaderboard." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
@@ -13,7 +13,7 @@
 <body>
   <header class="site-header">
     <div class="brand">Groundhog Forecast Desk</div>
-    <p class="tagline">We pick the single most accurate algorithm and publish the call.</p>
+    <p class="tagline">We fuse every technique into one dynamic super algorithm and publish the call.</p>
   </header>
 
   <main>
@@ -27,7 +27,7 @@
             <span id="certainty" class="metric-value">—</span>
           </div>
           <div class="metric">
-            <span class="metric-label">Algorithm Accuracy</span>
+            <span class="metric-label">Fusion Accuracy</span>
             <span id="algoAccuracy" class="metric-value">—</span>
           </div>
         </div>
@@ -36,8 +36,9 @@
 
       <div class="stats">
         <div class="stat">
-          <span class="stat-label">Chosen Algorithm</span>
-          <span id="algoName" class="stat-value">—</span>
+          <span class="stat-label">Weather Station Baseline</span>
+          <span id="stationAccuracy" class="stat-value">—</span>
+          <span id="stationDetail" class="stat-sub"></span>
         </div>
         <div class="stat">
           <span class="stat-label">Latest Prediction Year</span>
@@ -54,7 +55,12 @@
     <section class="panel leaderboard">
       <div class="leaderboard-head">
         <h2>Groundhog Accuracy Leaderboard</h2>
-        <div id="leaderboardMeta" class="meta"></div>
+        <div class="leaderboard-controls">
+          <button id="toggleNewbies" class="toggle-button" type="button" aria-pressed="false">
+            Allow Newbies
+          </button>
+          <div id="leaderboardMeta" class="meta"></div>
+        </div>
       </div>
       <div class="table-wrap">
         <table id="leaderboard"></table>
@@ -68,6 +74,6 @@
     </p>
   </footer>
 
-  <script type="module" src="app.js?v=2026-02-04-13"></script>
+  <script type="module" src="app.js?v=2026-02-05-03"></script>
 </body>
 </html>
