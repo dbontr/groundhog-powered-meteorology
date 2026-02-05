@@ -18,8 +18,11 @@ html, body{ margin:0; padding:0; }
 html{
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  width: 100%;
+  overflow-x: hidden;
 }
 body{
+  position: relative;
   font-family: var(--body);
   color: var(--ink);
   background:
@@ -27,6 +30,7 @@ body{
     radial-gradient(circle at 90% 0%, rgba(89, 180, 121, 0.28), transparent 45%),
     linear-gradient(180deg, #f7f1e5 0%, #efe7d8 100%);
   background-attachment: fixed;
+  width: 100%;
   overflow-x: hidden;
   min-height: 100vh;
   line-height: 1.45;
@@ -262,7 +266,9 @@ h2{
 
 .table-wrap{
   width: 100%;
+  max-width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   animation: fadeUp 1s ease both;
   animation-delay: 0.16s;
 }
@@ -281,11 +287,13 @@ h2{
   color: var(--muted);
   padding: 12px 10px;
   border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
 }
 
 #leaderboard tbody td{
   padding: 12px 10px;
   border-bottom: 1px solid rgba(220, 210, 195, 0.7);
+  overflow-wrap: anywhere;
 }
 
 #leaderboard tbody tr:last-child td{
