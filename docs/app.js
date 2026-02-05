@@ -76,7 +76,8 @@ function calibrateCertainty(consensus, accuracy, backtestN) {
     // Shrink with a conservative Beta(1,1) prior to avoid 100% certainty on small samples.
     accAdj = (accuracy * backtestN + 1) / (backtestN + 2);
   }
-  const skill = Math.max(0, Math.min(1, 2 * accAdj - 1));
+  const rawSkill = Math.max(0, Math.min(1, 2 * accAdj - 1));
+  const skill = Math.sqrt(rawSkill);
   const centered = consensus - 0.5;
   const scaled = 0.5 + centered * skill;
   return Math.max(0, Math.min(1, scaled));
