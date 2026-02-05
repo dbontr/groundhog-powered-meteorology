@@ -131,6 +131,8 @@ main{
   letter-spacing: 4px;
   line-height: 0.9;
   margin: 4px 0 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
   background: linear-gradient(120deg, var(--accent), var(--accent-2));
   -webkit-background-clip: text;
   background-clip: text;
@@ -316,7 +318,11 @@ footer{
 
 @media (max-width: 600px){
   .panel{ padding: 18px; }
-  .indicator{ letter-spacing: 2px; }
+  .brand{ font-size: clamp(24px, 6vw, 34px); }
+  .indicator{
+    font-size: clamp(42px, 12vw, 96px);
+    letter-spacing: 2px;
+  }
   .stats{ padding: 14px; }
-  .call-metrics{ grid-template-columns: 1fr; }
+  .call-metrics{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
