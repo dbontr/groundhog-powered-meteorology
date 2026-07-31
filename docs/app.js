@@ -69,7 +69,7 @@ function hasMinGroundhogs(predByYear, year, minCount = MIN_BACKTEST_GH) {
   return preds.length >= minCount;
 }
 
-function computeLeaderboard(predByYear, outcomes, groundhogDir, baselineByYear, minObs = MIN_OBS) {
+function computeLeaderboard(predByYear, outcomes, groundhogDir, minObs = MIN_OBS) {
   const nameBySlug = new Map();
   for (const g of (groundhogDir?.groundhogs ?? [])) {
     if (g?.slug) nameBySlug.set(g.slug, g.name || g.slug);
@@ -87,37 +87,31 @@ function computeLeaderboard(predByYear, outcomes, groundhogDir, baselineByYear, 
   for (const [year, preds] of predByYear) {
     const actual = outcomes.get(`${TARGET_BASE}:${year}`);
     if (!actual) continue;
-    const baselinePred = baselineByYear.get(year)?.pred ?? "";
     for (const p of preds) {
       const slug = p.groundhogSlug;
       if (!slug) continue;
-      if (!stats.has(slug)) stats.set(slug, { n: 0, k: 0, baselineK: 0 });
+      if (!stats.has(slug)) stats.set(slug, { n: 0, k: 0 });
       const s = stats.get(slug);
       s.n += 1;
       const predOut = predictionToOutcome(!!p.shadow);
       if (predOut === actual) s.k += 1;
-      if (baselinePred === actual) s.baselineK += 1;
     }
   }
 
   const rows = Array.from(stats.entries()).map(([slug, s]) => {
     const accuracy = s.n ? s.k / s.n : Number.NaN;
     const adjustedAccuracy = (s.k + 2) / (s.n + 4);
-    const baselineAccuracy = (s.baselineK + 2) / (s.n + 4);
     return {
       slug,
       name: nameBySlug.get(slug) ?? slug,
       n: s.n,
       k: s.k,
       accuracy,
-      adjustedAccuracy,
-      baselineAccuracy,
-      skill: adjustedAccuracy - baselineAccuracy
+      adjustedAccuracy
     };
   }).filter(r => r.n >= minObs);
 
   rows.sort((a, b) => {
-    if (b.skill !== a.skill) return b.skill - a.skill;
     if (b.adjustedAccuracy !== a.adjustedAccuracy) return b.adjustedAccuracy - a.adjustedAccuracy;
     if (b.n !== a.n) return b.n - a.n;
     return a.name.localeCompare(b.name);
@@ -147,7 +141,6 @@ function renderLeaderboard(rows) {
     rank: compact ? "#" : "Rank",
     groundhog: "Groundhog",
     accuracy: compact ? "Acc" : "Accuracy",
-    skill: compact ? "Skill" : "Climate Skill",
     obs: compact ? "Obs" : "Observations"
   };
 
@@ -158,13 +151,12 @@ function renderLeaderboard(rows) {
           <th class="rank">${labels.rank}</th>
           <th>${labels.groundhog}</th>
           <th>${labels.accuracy}</th>
-          <th>${labels.skill}</th>
           <th>${labels.obs}</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td colspan="5">No scored groundhog predictions yet.</td>
+          <td colspan="4">No scored groundhog predictions yet.</td>
         </tr>
       </tbody>
     `;
@@ -173,14 +165,11 @@ function renderLeaderboard(rows) {
 
   const body = rows.map((g, idx) => {
     const accuracy = Number.isFinite(g.accuracy) ? g.accuracy * 100 : Number.NaN;
-    const skill = Number.isFinite(g.skill) ? g.skill * 100 : Number.NaN;
-    const skillLabel = Number.isFinite(skill) && skill > 0 ? `+${fmtPctValue(skill, 1)}` : fmtPctValue(skill, 1);
     return `
       <tr>
         <td class="rank">${String(idx + 1).padStart(2, "0")}</td>
         <td>${g.name}</td>
         <td class="accuracy">${fmtPctValue(accuracy, 1)}</td>
-        <td>${skillLabel}</td>
         <td>${g.n}</td>
       </tr>
     `;
@@ -192,7 +181,6 @@ function renderLeaderboard(rows) {
         <th class="rank">${labels.rank}</th>
         <th>${labels.groundhog}</th>
         <th>${labels.accuracy}</th>
-        <th>${labels.skill}</th>
         <th>${labels.obs}</th>
       </tr>
     </thead>
@@ -237,15 +225,6 @@ async function run() {
       scoredYears,
       { windowYears: CLIMATOLOGY_WINDOW_YEARS }
     );
-    const leaderboardBaseline = computeHistoricalClimatologyBacktest(
-      outcomes,
-      TARGET_BASE,
-      leaderboardYears,
-      { windowYears: CLIMATOLOGY_WINDOW_YEARS }
-    );
-    const baselineByYear = new Map(
-      leaderboardBaseline.rows.map((row) => [row.year, row])
-    );
     const leaderboardButton = $("toggleNewbies");
     let allowNewbies = false;
     let latestPredCount = null;
@@ -262,8 +241,8 @@ async function run() {
         ? "Min observations: none (newbies included)."
         : `Min observations: ${minObs}.`;
       const yearText = scoredYears.length ? ` Scored years: ${minYear}–${maxYear}.` : "";
-      const keyText = compact ? " Key: #=Rank, Acc=Accuracy, Skill=adjusted accuracy minus climatology, Obs=Observations." : "";
-      return `Skill compares each verified groundhog with the ${CLIMATOLOGY_WINDOW_YEARS}-year climatology during the same active years. ${obsText}${yearText} The model backtest requires at least ${MIN_BACKTEST_GH} groundhogs per year.${keyText}`;
+      const keyText = compact ? " Key: #=Rank, Acc=Accuracy, Obs=Observations." : "";
+      return `Groundhogs are ranked by smoothed historical accuracy. ${obsText}${yearText} The model backtest requires at least ${MIN_BACKTEST_GH} groundhogs per year.${keyText}`;
     };
     const updateLeaderboard = () => {
       const minObs = allowNewbies ? 1 : LEADERBOARD_DEFAULT_MIN_OBS;
@@ -271,7 +250,6 @@ async function run() {
         predByYear,
         outcomes,
         groundhogDir,
-        baselineByYear,
         minObs
       );
       renderLeaderboard(rows);

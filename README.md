@@ -9,7 +9,7 @@ The site:
 - evaluates every model decision with chronological walk-forward testing
 - weights groundhogs by Wilson-confidence reliability with recent years emphasized
 - uses no weather or climatology input when producing the forecast
-- ranks groundhogs by skill relative to climatology during the same active years
+- ranks groundhogs by smoothed historical accuracy
 
 The forecast is literally groundhog derived; ducks, lobsters, mascots, statues, and other non-groundhog forecasters are excluded.
 
@@ -65,7 +65,7 @@ The site reports:
 - the matching 15-year climatology baseline
 - the number of reporting groundhogs with usable reliability histories
 
-On the current cleaned data, the 2000–2025 walk-forward result is 88.5% accuracy and 93.8% balanced accuracy. The leaderboard shows raw accuracy and climate-relative skill over each groundhog's active years.
+On the current cleaned data, the 2000–2025 walk-forward result is 88.5% accuracy and 93.8% balanced accuracy. The leaderboard shows raw accuracy and observations, ordered by smoothed historical accuracy.
 
 ## Performance
 
