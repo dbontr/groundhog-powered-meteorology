@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Groundhog Powered Meteorology</title>
-  <link rel="icon" type="image/png" href="favicon.png?v=2026-02-05-21" />
-  <link rel="stylesheet" href="styles.css?v=2026-02-05-21" />
+  <link rel="icon" type="image/png" href="favicon.png?v=2026-07-31-1" />
+  <link rel="stylesheet" href="styles.css?v=2026-07-31-1" />
   <meta name="description" content="Groundhog forecast with a computed accuracy leaderboard." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,7 +14,7 @@
 <body>
   <header class="site-header">
     <div class="brand">Groundhog Powered Meteorology</div>
-    <p class="tagline">We listened to your favorite groundhogs and published the call.</p>
+    <p class="tagline">We listened to your favorite groundhogs, measured their skill, and published the call.</p>
   </header>
 
   <main>
@@ -24,11 +24,11 @@
         <div id="indicator" class="indicator">—</div>
         <div class="call-metrics">
           <div class="metric">
-            <span class="metric-label">Certainty</span>
-            <span id="certainty" class="metric-value">—</span>
+            <span class="metric-label">Forecast Probability</span>
+            <span id="forecastProbability" class="metric-value">—</span>
           </div>
           <div class="metric">
-            <span class="metric-label">Accuracy</span>
+            <span class="metric-label">Backtest Accuracy</span>
             <span id="algoAccuracy" class="metric-value">—</span>
           </div>
         </div>
@@ -37,9 +37,14 @@
 
       <div class="stats">
         <div class="stat">
-          <span class="stat-label">Weather Station Baseline (10-day+)</span>
-          <span id="stationAccuracy" class="stat-value">—</span>
-          <span id="stationDetail" class="stat-sub"></span>
+          <span class="stat-label">15-Year Climatology Baseline</span>
+          <span id="baselineAccuracy" class="stat-value">—</span>
+          <span id="baselineDetail" class="stat-sub"></span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Balanced Accuracy</span>
+          <span id="balancedAccuracy" class="stat-value">—</span>
+          <span id="modelDetail" class="stat-sub"></span>
         </div>
         <div class="stat">
           <span class="stat-label">Latest Prediction Year</span>
@@ -73,13 +78,13 @@
 
   <footer>
     <p>
-      Data: Groundhog predictions from GROUNDHOG-DAY.com API. Outcomes from NOAA Climate at a Glance (CONUS Feb+Mar anomalies). Leaderboard computed from those sources.
+      Data: Groundhog predictions from GROUNDHOG-DAY.com API. Outcomes from NOAA Climate at a Glance (CONUS Feb+Mar anomalies). Forecasts use nested walk-forward evaluation and a 15-year climatology guard.
     </p>
     <p>
       Built in honor of my dad, whose favorite holiday is Groundhog Day.
     </p>
   </footer>
 
-  <script type="module" src="app.js?v=2026-02-05-21"></script>
+  <script type="module" src="app.js?v=2026-07-31-1"></script>
 </body>
 </html>

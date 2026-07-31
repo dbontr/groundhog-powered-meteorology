@@ -220,7 +220,7 @@ function hasMinGroundhogs(predByYear, year, minCount = DEFAULT_MIN_BACKTEST_GH) 
 }
 
 
-function majorityVote(preds) {
+export function majorityVote(preds) {
   let early = 0;
   let late = 0;
   for (const p of preds) {
@@ -229,10 +229,13 @@ function majorityVote(preds) {
     else late += 1;
   }
   const used = early + late;
-  if (!used) return { pred: "", certainty: Number.NaN, used };
-  const pred = early >= late ? "EARLY_SPRING" : "LONG_WINTER";
-  const certainty = Math.max(early, late) / used;
-  return { pred, certainty, used };
+  if (!used) {
+    return { pred: "", probability: 0.5, certainty: 0, margin: 0, used };
+  }
+  const margin = (early - late) / used;
+  const probability = (margin + 1) / 2;
+  const pred = margin > 0 ? "EARLY_SPRING" : margin < 0 ? "LONG_WINTER" : "";
+  return { pred, probability, certainty: Math.abs(margin), margin, used };
 }
 
 function clamp(x, lo, hi) {
@@ -313,10 +316,13 @@ function computeFusionStats(predByYear, outcomes, target, yearExclusive, cfg) {
     const accBayes = (s.k + priorA) / (s.n + priorA + priorB);
     const accDecay = s.nDecay ? (s.kDecay + priorA) / (s.nDecay + priorA + priorB) : accBayes;
     const accWindow = s.nWindow ? (s.kWindow + priorA) / (s.nWindow + priorA + priorB) : accBayes;
-    const accEarly = s.nEarly ? s.kEarly / s.nEarly : accRaw;
-    const accLate = s.nLate ? s.kLate / s.nLate : accRaw;
-    const stability = clamp(1 - Math.abs(accEarly - accLate), 0, 1);
-    const trend = accLate - accEarly;
+    const hasBothEras = s.nEarly > 0 && s.nLate > 0;
+    const accEarly = s.nEarly ? s.kEarly / s.nEarly : Number.NaN;
+    const accLate = s.nLate ? s.kLate / s.nLate : Number.NaN;
+    const stability = hasBothEras
+      ? clamp(1 - Math.abs(accEarly - accLate), 0, 1)
+      : 0.5;
+    const trend = hasBothEras ? accLate - accEarly : 0;
 
     derived.set(slug, {
       n: s.n,
@@ -332,7 +338,7 @@ function computeFusionStats(predByYear, outcomes, target, yearExclusive, cfg) {
   return { stats: derived, maxN };
 }
 
-function buildFusionWeights(stats, maxN, cfg) {
+export function buildFusionWeights(stats, maxN, cfg) {
   const weights = new Map();
   const denom = Math.log1p(Math.max(1, maxN));
 
@@ -341,18 +347,21 @@ function buildFusionWeights(stats, maxN, cfg) {
 
     const evidence = denom ? Math.log1p(s.n) / denom : 0;
     const stability = Number.isFinite(s.stability) ? s.stability : 0.5;
-    const signal = (cfg.wBayes ?? 1) * logit(s.accBayes)
+    let skill = (cfg.wBayes ?? 1) * logit(s.accBayes)
       + (cfg.wDecay ?? 0) * logit(s.accDecay)
       + (cfg.wWindow ?? 0) * logit(s.accWindow)
-      + (cfg.wStability ?? 0) * ((stability - 0.5) * 2)
-      + (cfg.wEvidence ?? 0) * evidence
       + (cfg.wTrend ?? 0) * s.trend;
 
-    if (!Number.isFinite(signal)) continue;
-    let w = signal;
-    if (cfg.contrarian && s.accBayes < 0.5) w *= -1;
+    if (!Number.isFinite(skill)) continue;
+    if (!cfg.contrarian && skill <= 0) continue;
+
+    const evidenceFactor = 1 + (cfg.wEvidence ?? 0) * evidence;
+    const stabilityFactor = Math.max(
+      0,
+      1 + (cfg.wStability ?? 0) * (stability - 0.5)
+    );
     const boost = Math.pow(Math.max(1, s.n), cfg.nBoost ?? 0.5);
-    w *= boost;
+    const w = skill * evidenceFactor * stabilityFactor * boost;
     if (Math.abs(w) < 1e-9) continue;
     weights.set(slug, w);
   }
@@ -369,7 +378,14 @@ function predictWithFusionConfig(predByYear, outcomes, target, year, cfg, cache)
 
   const preds = predByYear.get(year) ?? [];
   if (!preds.length) {
-    const empty = { pred: "", certainty: Number.NaN, used: 0, usedWeighted: false };
+    const empty = {
+      pred: "",
+      probability: 0.5,
+      certainty: 0,
+      margin: 0,
+      used: 0,
+      usedWeighted: false
+    };
     cache?.set(key, empty);
     return empty;
   }
@@ -396,21 +412,34 @@ function predictWithFusionConfig(predByYear, outcomes, target, year, cfg, cache)
     const fallback = majorityVote(preds);
     res = { ...fallback, usedWeighted: false };
   } else {
-    const pred = score >= 0 ? "EARLY_SPRING" : "LONG_WINTER";
-    const certainty = Math.min(1, Math.abs(score) / totalAbs);
-    res = { pred, certainty, used, usedWeighted: true };
+    const margin = clamp(score / totalAbs, -1, 1);
+    const probability = (margin + 1) / 2;
+    const pred = margin > 0 ? "EARLY_SPRING" : margin < 0 ? "LONG_WINTER" : "";
+    res = {
+      pred,
+      probability,
+      certainty: Math.abs(margin),
+      margin,
+      used,
+      usedWeighted: true
+    };
   }
 
   cache?.set(key, res);
   return res;
 }
 
-function signalFromPrediction(res) {
-  if (!res?.pred) return { signal: 0, strength: 0 };
-  const sign = res.pred === "EARLY_SPRING" ? 1 : -1;
-  const certainty = Number.isFinite(res.certainty) ? res.certainty : 0;
-  const strength = sign * (0.35 + 0.65 * certainty);
-  return { signal: sign, strength };
+export function signalFromPrediction(res) {
+  let probability = Number.isFinite(res?.probability) ? res.probability : Number.NaN;
+  if (!Number.isFinite(probability) && res?.pred) {
+    const sign = res.pred === "EARLY_SPRING" ? 1 : -1;
+    const certainty = Number.isFinite(res.certainty) ? res.certainty : 0;
+    probability = (sign * certainty + 1) / 2;
+  }
+  if (!Number.isFinite(probability)) probability = 0.5;
+  const strength = clamp(2 * probability - 1, -1, 1);
+  const signal = strength > 0 ? 1 : strength < 0 ? -1 : 0;
+  return { signal, strength };
 }
 
 function buildFusionFeatureCache(predByYear, outcomes, target, configs, minGroundhogs) {
@@ -501,7 +530,7 @@ function selectTopConfigIndexes(featureCache, year, cfg) {
 
 function buildFeatureVector(featureCache, year, configIdxs) {
   const results = featureCache.resultsByYear.get(year) ?? [];
-  const feats = [];
+  const strengths = [];
   let used = 0;
   let sumSignal = 0;
   let sumStrength = 0;
@@ -510,11 +539,13 @@ function buildFeatureVector(featureCache, year, configIdxs) {
   for (const idx of configIdxs) {
     const res = results[idx];
     const { signal, strength } = signalFromPrediction(res);
-    if (signal !== 0) used += 1;
+    if (signal !== 0) {
+      used += 1;
+      strengths.push(strength);
+    }
     sumSignal += signal;
     sumStrength += strength;
     sumAbsStrength += Math.abs(strength);
-    feats.push(signal, strength);
   }
 
   const usedRatio = configIdxs.length ? used / configIdxs.length : 0;
@@ -523,8 +554,19 @@ function buildFeatureVector(featureCache, year, configIdxs) {
   const meanAbsStrength = used ? sumAbsStrength / used : 0;
   const consensus = used ? Math.abs(sumSignal) / used : 0;
   const disagreement = 1 - consensus;
-
-  feats.push(meanSignal, meanStrength, meanAbsStrength, consensus, disagreement, usedRatio);
+  const variance = strengths.length
+    ? strengths.reduce((sum, x) => sum + ((x - meanStrength) ** 2), 0) / strengths.length
+    : 0;
+  const strengthSpread = Math.sqrt(variance);
+  const feats = [
+    meanSignal,
+    meanStrength,
+    meanAbsStrength,
+    consensus,
+    disagreement,
+    usedRatio,
+    strengthSpread
+  ];
 
   return { feats, used };
 }
@@ -573,7 +615,7 @@ function stackedFusionPredict(featureCache, year, configIdxs, opts = {}) {
   const windowStart = opts.windowYears ? year - opts.windowYears : null;
   const trainYears = featureCache.scoredYears.filter((y) => y < year && (!windowStart || y >= windowStart));
   if (trainYears.length < (opts.minTrain ?? 12)) {
-    return { pred: "", certainty: Number.NaN, used: 0 };
+    return { pred: "", probability: 0.5, certainty: 0, margin: 0, used: 0 };
   }
 
   const X = [];
@@ -590,28 +632,29 @@ function stackedFusionPredict(featureCache, year, configIdxs, opts = {}) {
   }
 
   if (X.length < (opts.minTrain ?? 12)) {
-    return { pred: "", certainty: Number.NaN, used: 0 };
+    return { pred: "", probability: 0.5, certainty: 0, margin: 0, used: 0 };
   }
 
   const model = trainLogistic(X, y, { ...opts, sampleWeights: lambda ? sampleWeights : null });
-  if (!model) return { pred: "", certainty: Number.NaN, used: 0 };
+  if (!model) return { pred: "", probability: 0.5, certainty: 0, margin: 0, used: 0 };
 
   const { feats, used } = buildFeatureVector(featureCache, year, configIdxs);
-  if (!used) return { pred: "", certainty: Number.NaN, used: 0 };
+  if (!used) return { pred: "", probability: 0.5, certainty: 0, margin: 0, used: 0 };
 
   let z = model.b;
   for (let j = 0; j < model.w.length; j++) z += model.w[j] * feats[j];
-  const p = 1 / (1 + Math.exp(-z));
-  const pred = p >= 0.5 ? "EARLY_SPRING" : "LONG_WINTER";
-  const certainty = Math.abs(p - 0.5) * 2;
-  return { pred, certainty, used };
+  z = clamp(z, -35, 35);
+  const probability = 1 / (1 + Math.exp(-z));
+  const margin = 2 * probability - 1;
+  const pred = margin > 0 ? "EARLY_SPRING" : margin < 0 ? "LONG_WINTER" : "";
+  return { pred, probability, certainty: Math.abs(margin), margin, used };
 }
 
 function weightedBlendPredict(featureCache, year, configIdxs, opts = {}) {
   const windowStart = opts.windowYears ? year - opts.windowYears : null;
   const trainYears = featureCache.scoredYears.filter((y) => y < year && (!windowStart || y >= windowStart));
   if (trainYears.length < (opts.minTrain ?? 8)) {
-    return { pred: "", certainty: Number.NaN, used: 0 };
+    return { pred: "", probability: 0.5, certainty: 0, margin: 0, used: 0 };
   }
 
   let score = 0;
@@ -635,11 +678,13 @@ function weightedBlendPredict(featureCache, year, configIdxs, opts = {}) {
     used += 1;
   }
 
-  if (!totalAbs) return { pred: "", certainty: Number.NaN, used };
-  const ratio = score / totalAbs;
-  const pred = ratio >= 0 ? "EARLY_SPRING" : "LONG_WINTER";
-  const certainty = Math.min(1, Math.abs(ratio));
-  return { pred, certainty, used };
+  if (!totalAbs) {
+    return { pred: "", probability: 0.5, certainty: 0, margin: 0, used };
+  }
+  const margin = clamp(score / totalAbs, -1, 1);
+  const probability = (margin + 1) / 2;
+  const pred = margin > 0 ? "EARLY_SPRING" : margin < 0 ? "LONG_WINTER" : "";
+  return { pred, probability, certainty: Math.abs(margin), margin, used };
 }
 
 function dynamicSuperPredict(predByYear, year, model) {
@@ -667,60 +712,329 @@ function dynamicSuperPredict(predByYear, year, model) {
   return { ...res, method, usedWeighted: method !== "majority" };
 }
 
-function backtestDynamicSuper(predByYear, outcomes, model) {
-  let k = 0;
-  let n = 0;
-  let lastYear = null;
+const DEFAULT_CLIMATOLOGY_WINDOW_YEARS = 15;
+const DEFAULT_MIN_BLEND_YEARS = 8;
+const DEFAULT_BLEND_SHRINKAGE = 10;
 
-  for (const y of model.featureCache.scoredYears) {
-    const res = dynamicSuperPredict(predByYear, y, model);
-    if (!res.pred) continue;
-    n += 1;
-    if (res.pred === outcomes.get(`${model.target}:${y}`)) k += 1;
-    lastYear = y;
+function climatologyProbability(outcomes, target, year, windowYears) {
+  let early = 0;
+  let late = 0;
+  const prefix = `${target}:`;
+  const windowStart = windowYears ? year - windowYears : -Infinity;
+  for (const [key, outcome] of outcomes) {
+    if (!key.startsWith(prefix)) continue;
+    const outcomeYear = Number(key.slice(prefix.length));
+    if (!Number.isFinite(outcomeYear) || outcomeYear >= year || outcomeYear < windowStart) continue;
+    if (outcome === "EARLY_SPRING") early += 1;
+    else if (outcome === "LONG_WINTER") late += 1;
   }
-
-  return { accuracy: n ? k / n : Number.NaN, backtestN: n, lastYear };
+  return { probability: (early + 1) / (early + late + 2), observations: early + late };
 }
 
-function tuneDynamicSuper(predByYear, outcomes, featureCache, tuningSets) {
-  let best = null;
+function rawPredictionForProfile(predByYear, profile, year, cache) {
+  const key = `${profile.id}:${year}`;
+  if (!cache.has(key)) cache.set(key, dynamicSuperPredict(predByYear, year, profile));
+  return cache.get(key);
+}
 
-  for (const tuning of tuningSets) {
-    const candidate = {
-      ...tuning,
-      target: featureCache.target,
-      configs: featureCache.configs,
-      featureCache
-    };
-    const backtest = backtestDynamicSuper(predByYear, outcomes, candidate);
-    if (!Number.isFinite(backtest.accuracy)) continue;
-    const scored = { ...candidate, backtest };
-    if (!best) {
-      best = scored;
+function estimateGroundhogWeight(predByYear, outcomes, profile, featureCache, year, rawCache, opts) {
+  const historyYears = featureCache.scoredYears.filter((y) => y < year);
+  if (historyYears.length < opts.minBlendYears) return 0;
+  let climateLoss = 0;
+  let groundhogLoss = 0;
+
+  for (const historyYear of historyYears) {
+    const label = outcomes.get(`${featureCache.target}:${historyYear}`) === "EARLY_SPRING" ? 1 : 0;
+    const climate = climatologyProbability(
+      outcomes,
+      featureCache.target,
+      historyYear,
+      opts.climatologyWindowYears
+    ).probability;
+    const raw = rawPredictionForProfile(predByYear, profile, historyYear, rawCache);
+    const groundhog = Number.isFinite(raw.probability) ? raw.probability : 0.5;
+    climateLoss += (climate - label) ** 2;
+    groundhogLoss += (groundhog - label) ** 2;
+  }
+
+  climateLoss /= historyYears.length;
+  groundhogLoss /= historyYears.length;
+  if (groundhogLoss >= climateLoss || climateLoss <= 0) return 0;
+  const relativeSkill = (climateLoss - groundhogLoss) / climateLoss;
+  const evidence = historyYears.length / (historyYears.length + opts.blendShrinkage);
+  return clamp(relativeSkill * evidence, 0, 1);
+}
+
+function guardedPredictionForProfile(
+  predByYear,
+  outcomes,
+  profile,
+  featureCache,
+  year,
+  rawCache,
+  guardedCache,
+  opts
+) {
+  const key = `${profile.id}:${year}`;
+  if (guardedCache.has(key)) return guardedCache.get(key);
+  const raw = rawPredictionForProfile(predByYear, profile, year, rawCache);
+  const climate = climatologyProbability(
+    outcomes,
+    featureCache.target,
+    year,
+    opts.climatologyWindowYears
+  );
+  const groundhogWeight = estimateGroundhogWeight(
+    predByYear,
+    outcomes,
+    profile,
+    featureCache,
+    year,
+    rawCache,
+    opts
+  );
+  const rawProbability = Number.isFinite(raw.probability) ? raw.probability : 0.5;
+  const probability = (1 - groundhogWeight) * climate.probability
+    + groundhogWeight * rawProbability;
+  const margin = 2 * probability - 1;
+  const pred = margin > 0 ? "EARLY_SPRING" : margin < 0 ? "LONG_WINTER" : "";
+  const result = {
+    ...raw,
+    pred,
+    probability,
+    certainty: Math.abs(margin),
+    margin,
+    method: groundhogWeight > 0 ? `${raw.method}+climatology` : "climatology-guard",
+    usedWeighted: groundhogWeight > 0 && raw.usedWeighted,
+    rawProbability,
+    climatologyProbability: climate.probability,
+    climatologyObservations: climate.observations,
+    groundhogWeight
+  };
+  guardedCache.set(key, result);
+  return result;
+}
+
+function makeBacktestRow(year, res, actual, profileId) {
+  return { year, actual, profileId, ...res };
+}
+
+export function summarizeBacktestRows(rows) {
+  let correct = 0;
+  let predicted = 0;
+  let total = 0;
+  let positives = 0;
+  let negatives = 0;
+  let truePositives = 0;
+  let trueNegatives = 0;
+  let brier = 0;
+  let logLoss = 0;
+
+  for (const row of rows) {
+    if (row.actual !== "EARLY_SPRING" && row.actual !== "LONG_WINTER") continue;
+    const label = row.actual === "EARLY_SPRING" ? 1 : 0;
+    const probability = clamp(
+      Number.isFinite(row.probability) ? row.probability : 0.5,
+      0,
+      1
+    );
+    const logProbability = clamp(probability, 1e-6, 1 - 1e-6);
+    total += 1;
+    brier += (probability - label) ** 2;
+    logLoss += -(label * Math.log(logProbability)
+      + (1 - label) * Math.log(1 - logProbability));
+    if (label) positives += 1;
+    else negatives += 1;
+
+    if (!row.pred) continue;
+    predicted += 1;
+    if (row.pred === row.actual) correct += 1;
+    if (label && row.pred === "EARLY_SPRING") truePositives += 1;
+    if (!label && row.pred === "LONG_WINTER") trueNegatives += 1;
+  }
+
+  const positiveRecall = positives ? truePositives / positives : Number.NaN;
+  const negativeRecall = negatives ? trueNegatives / negatives : Number.NaN;
+  const balancedAccuracy = Number.isFinite(positiveRecall) && Number.isFinite(negativeRecall)
+    ? (positiveRecall + negativeRecall) / 2
+    : Number.NaN;
+
+  return {
+    rows,
+    accuracy: predicted ? correct / predicted : Number.NaN,
+    balancedAccuracy,
+    brierScore: total ? brier / total : Number.NaN,
+    logLoss: total ? logLoss / total : Number.NaN,
+    coverage: total ? predicted / total : 0,
+    backtestN: total,
+    predictedN: predicted,
+    lastYear: rows.length ? rows[rows.length - 1].year : null,
+    confusion: { positives, negatives, truePositives, trueNegatives }
+  };
+}
+
+const MIN_PROFILE_SELECTION_YEARS = 6;
+
+function buildProfileModels(featureCache, tuningSets) {
+  return tuningSets.map((tuning) => ({
+    ...tuning,
+    target: featureCache.target,
+    configs: featureCache.configs,
+    featureCache
+  }));
+}
+
+function selectProfileForYear(
+  predByYear,
+  outcomes,
+  profiles,
+  featureCache,
+  year,
+  rawCache,
+  guardedCache,
+  guardOpts,
+  minYears
+) {
+  const historyYears = featureCache.scoredYears.filter((y) => y < year);
+  if (historyYears.length < minYears) return profiles[0];
+
+  let best = null;
+  for (const profile of profiles) {
+    const rows = historyYears.map((historyYear) => makeBacktestRow(
+      historyYear,
+      guardedPredictionForProfile(
+        predByYear,
+        outcomes,
+        profile,
+        featureCache,
+        historyYear,
+        rawCache,
+        guardedCache,
+        guardOpts
+      ),
+      outcomes.get(`${featureCache.target}:${historyYear}`),
+      profile.id
+    ));
+    const metrics = summarizeBacktestRows(rows);
+    const balanced = Number.isFinite(metrics.balancedAccuracy)
+      ? metrics.balancedAccuracy
+      : -Infinity;
+    const accuracy = Number.isFinite(metrics.accuracy) ? metrics.accuracy : -Infinity;
+    const candidate = { profile, metrics, balanced, accuracy };
+
+    if (!best || metrics.brierScore < best.metrics.brierScore - 1e-12) {
+      best = candidate;
       continue;
     }
-    if (backtest.accuracy > best.backtest.accuracy) {
-      best = scored;
-      continue;
-    }
-    if (backtest.accuracy === best.backtest.accuracy && backtest.backtestN > best.backtest.backtestN) {
-      best = scored;
+    if (Math.abs(metrics.brierScore - best.metrics.brierScore) <= 1e-12) {
+      if (balanced > best.balanced || (balanced === best.balanced && accuracy > best.accuracy)) {
+        best = candidate;
+      }
     }
   }
 
-  return best;
+  return best?.profile ?? profiles[0];
+}
+
+export function computeHistoricalClimatologyBacktest(outcomes, target, years, opts = {}) {
+  const windowYears = opts.windowYears ?? DEFAULT_CLIMATOLOGY_WINDOW_YEARS;
+  const rows = [...years].sort((a, b) => a - b).map((year) => {
+    const climate = climatologyProbability(outcomes, target, year, windowYears);
+    const probability = climate.probability;
+    const margin = 2 * probability - 1;
+    const pred = margin > 0 ? "EARLY_SPRING" : margin < 0 ? "LONG_WINTER" : "";
+    return makeBacktestRow(year, {
+      pred,
+      probability,
+      certainty: Math.abs(margin),
+      margin,
+      used: climate.observations,
+      method: "climatology",
+      usedWeighted: false
+    }, outcomes.get(`${target}:${year}`), "climatology");
+  });
+
+  return summarizeBacktestRows(rows);
 }
 
 export function buildDynamicSuperModel(predByYear, outcomes, target, opts = {}) {
   const configs = opts.configs ?? FUSION_CONFIGS;
-  if (!configs.length) return null;
   const tuningSets = opts.tuningSets ?? TUNING_SETS;
+  if (!configs.length || !tuningSets.length) return null;
   const minGroundhogs = opts.minGroundhogs ?? DEFAULT_MIN_BACKTEST_GH;
+  const minSelectionYears = opts.minSelectionYears ?? MIN_PROFILE_SELECTION_YEARS;
+  const guardOpts = {
+    climatologyWindowYears: opts.climatologyWindowYears ?? DEFAULT_CLIMATOLOGY_WINDOW_YEARS,
+    minBlendYears: opts.minBlendYears ?? DEFAULT_MIN_BLEND_YEARS,
+    blendShrinkage: opts.blendShrinkage ?? DEFAULT_BLEND_SHRINKAGE
+  };
   const featureCache = buildFusionFeatureCache(predByYear, outcomes, target, configs, minGroundhogs);
-  const tuned = tuneDynamicSuper(predByYear, outcomes, featureCache, tuningSets);
-  if (!tuned) return null;
-  return tuned;
+  const profiles = buildProfileModels(featureCache, tuningSets);
+  const rawPredictionCache = new Map();
+  const guardedPredictionCache = new Map();
+  const profileByYear = new Map();
+  const rows = [];
+
+  for (const year of featureCache.scoredYears) {
+    const profile = selectProfileForYear(
+      predByYear,
+      outcomes,
+      profiles,
+      featureCache,
+      year,
+      rawPredictionCache,
+      guardedPredictionCache,
+      guardOpts,
+      minSelectionYears
+    );
+    profileByYear.set(year, profile.id);
+    rows.push(makeBacktestRow(
+      year,
+      guardedPredictionForProfile(
+        predByYear,
+        outcomes,
+        profile,
+        featureCache,
+        year,
+        rawPredictionCache,
+        guardedPredictionCache,
+        guardOpts
+      ),
+      outcomes.get(`${target}:${year}`),
+      profile.id
+    ));
+  }
+
+  const backtest = summarizeBacktestRows(rows);
+  const latestYear = featureCache.allYears.length
+    ? featureCache.allYears[featureCache.allYears.length - 1]
+    : null;
+  const currentProfile = latestYear === null
+    ? profiles[0]
+    : selectProfileForYear(
+      predByYear,
+      outcomes,
+      profiles,
+      featureCache,
+      latestYear,
+      rawPredictionCache,
+      guardedPredictionCache,
+      guardOpts,
+      minSelectionYears
+    );
+
+  return {
+    ...currentProfile,
+    currentProfile,
+    profiles,
+    profileByYear,
+    featureCache,
+    outcomes,
+    backtest,
+    guardOpts,
+    selectionMethod: "nested-walk-forward",
+    minSelectionYears
+  };
 }
 
 export function computeDynamicSuperNowcast(predByYear, model) {
@@ -728,14 +1042,32 @@ export function computeDynamicSuperNowcast(predByYear, model) {
   if (!years.length) return null;
   const latestYear = Math.max(...years);
   const preds = predByYear.get(latestYear) ?? [];
-  const res = dynamicSuperPredict(predByYear, latestYear, model);
+  const profile = model.currentProfile ?? model;
+  const res = model.outcomes && model.guardOpts
+    ? guardedPredictionForProfile(
+      predByYear,
+      model.outcomes,
+      profile,
+      model.featureCache,
+      latestYear,
+      new Map(),
+      new Map(),
+      model.guardOpts
+    )
+    : dynamicSuperPredict(predByYear, latestYear, profile);
   return {
     latestYear,
     pred: res.pred,
+    probability: res.probability,
     certainty: res.certainty,
+    margin: res.margin,
     used: preds.length,
     totalPreds: preds.length,
     usedWeighted: res.usedWeighted,
-    method: res.method
+    method: res.method,
+    profileId: profile.id,
+    groundhogWeight: res.groundhogWeight ?? 1,
+    rawProbability: res.rawProbability ?? res.probability,
+    climatologyProbability: res.climatologyProbability ?? Number.NaN
   };
 }
