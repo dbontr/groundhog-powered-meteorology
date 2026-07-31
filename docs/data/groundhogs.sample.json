@@ -7,7 +7,9 @@
       "region": "Punxsutawney, PA, US",
       "latitude": 40.943,
       "longitude": -78.97,
-      "source": "sample"
+      "source": "sample",
+      "isGroundhog": true,
+      "type": "Groundhog"
     },
     {
       "slug": "staten-island-chuck",
@@ -15,7 +17,9 @@
       "region": "Staten Island, NY, US",
       "latitude": 40.5795,
       "longitude": -74.1502,
-      "source": "sample"
+      "source": "sample",
+      "isGroundhog": true,
+      "type": "Groundhog"
     },
     {
       "slug": "wiarton-willie",
@@ -23,7 +27,10 @@
       "region": "Wiarton, ON, CA",
       "latitude": 44.738,
       "longitude": -81.133,
-      "source": "sample"
+      "source": "sample",
+      "isGroundhog": true,
+      "type": "Groundhog"
     }
-  ]
+  ],
+  "groundhogsOnly": true
 }

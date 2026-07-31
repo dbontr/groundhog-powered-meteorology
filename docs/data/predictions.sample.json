@@ -241,5 +241,7 @@
       "details": "(sample)",
       "source": "sample"
     }
-  ]
+  ],
+  "groundhogsOnly": true,
+  "excludesMissingPredictions": true
 }

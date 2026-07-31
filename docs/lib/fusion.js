@@ -6,7 +6,7 @@ import {
 
 export const GOAL_ACCURACY = 0.70;
 
-const DEFAULT_MIN_BACKTEST_GH = 20;
+const DEFAULT_MIN_BACKTEST_GH = 13;
 const DEFAULT_CLIMATOLOGY_WINDOW_YEARS = 15;
 
 function clamp(x, lo, hi) {
@@ -194,16 +194,16 @@ export function computeHistoricalClimatologyBacktest(
 }
 
 export const GROUNDHOG_HYBRID = Object.freeze({
-  id: "wilson-decay-crowd",
-  reliabilityShare: 0.8,
-  crowdShare: 0.2,
+  id: "verified-groundhog-wilson",
+  reliabilityShare: 1,
+  crowdShare: 0,
   reliabilityMethod: "wilson_decay",
   reliabilityOptions: Object.freeze({
     minObs: 8,
     alpha: 1,
-    gamma: 0.25,
+    gamma: 0.5,
     betaPrior: [2, 2],
-    halfLifeYears: 4,
+    halfLifeYears: 3,
     windowYears: 20
   })
 });
@@ -240,7 +240,6 @@ function groundhogHybridPredict(predByYear, outcomes, target, year, opts = {}) {
     0,
     1
   );
-  const crowd = majorityVote(predictions);
   const { weights } = trainWeights(
     predByYear,
     outcomes,
@@ -259,11 +258,14 @@ function groundhogHybridPredict(predByYear, outcomes, target, year, opts = {}) {
   const hasWeightedSignal = weighted.used > 0 && Number.isFinite(weighted.score);
   const weightedProbability = hasWeightedSignal
     ? clamp((weighted.score + 1) / 2, 0, 1)
-    : crowd.probability;
+    : 0.5;
+  const needsCrowd = !hasWeightedSignal || reliabilityShare < 1;
+  const crowd = needsCrowd ? majorityVote(predictions) : null;
   const activeReliabilityShare = hasWeightedSignal ? reliabilityShare : 0;
   const activeCrowdShare = 1 - activeReliabilityShare;
+  const crowdProbability = crowd?.probability ?? 0.5;
   const probability = activeReliabilityShare * weightedProbability
-    + activeCrowdShare * crowd.probability;
+    + activeCrowdShare * crowdProbability;
   const margin = 2 * probability - 1;
   const pred = margin > 0 ? "EARLY_SPRING" : margin < 0 ? "LONG_WINTER" : "";
 
@@ -275,11 +277,11 @@ function groundhogHybridPredict(predByYear, outcomes, target, year, opts = {}) {
     used: predictions.length,
     weightedUsed: weighted.used,
     usedWeighted: hasWeightedSignal,
-    method: hasWeightedSignal ? "reliability-crowd-hybrid" : "crowd-vote",
+    method: hasWeightedSignal ? "verified-groundhog-reliability" : "groundhog-crowd-fallback",
     reliabilityShare: activeReliabilityShare,
     crowdShare: activeCrowdShare,
     weightedProbability,
-    crowdProbability: crowd.probability
+    crowdProbability
   };
 }
 
@@ -319,7 +321,7 @@ export function buildDynamicSuperModel(predByYear, outcomes, target, opts = {}) 
     outcomes,
     backtest: summarizeBacktestRows(rows),
     hybridOpts,
-    selectionMethod: "fixed-groundhog-hybrid"
+    selectionMethod: "verified-groundhog-reliability"
   };
 }
 

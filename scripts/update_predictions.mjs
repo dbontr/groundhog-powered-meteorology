@@ -9,6 +9,19 @@ const END_YEAR = new Date().getFullYear();
 
 function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 
+function isExplicitShadow(value) {
+  return value === 0 || value === 1 || typeof value === "boolean";
+}
+
+function parseCoordinates(value) {
+  if (typeof value !== "string") return { latitude: null, longitude: null };
+  const [latitude, longitude] = value.split(",").map(Number);
+  return {
+    latitude: Number.isFinite(latitude) ? latitude : null,
+    longitude: Number.isFinite(longitude) ? longitude : null
+  };
+}
+
 async function fetchJson(url, tries = 3) {
   let lastErr;
   for (let i = 0; i < tries; i++) {
@@ -29,28 +42,50 @@ async function main() {
 
   console.log(`Fetching groundhog list from ${API}/groundhogs ...`);
   const gh = await fetchJson(`${API}/groundhogs`);
-  const groundhogs = Array.isArray(gh.groundhogs) ? gh.groundhogs : (Array.isArray(gh) ? gh : []);
-  if (!groundhogs.length) {
-    throw new Error("Unexpected /groundhogs response shape; got no groundhogs.");
+  const allForecasters = Array.isArray(gh.groundhogs)
+    ? gh.groundhogs
+    : (Array.isArray(gh) ? gh : []);
+  if (!allForecasters.length) {
+    throw new Error("Unexpected /groundhogs response shape; got no forecasters.");
   }
 
-  // Save a trimmed groundhog directory (enough for UI + matching).
-  const groundhogDir = groundhogs.map(g => ({
-    id: g.id ?? null,
-    slug: g.slug ?? null,
-    name: g.name ?? null,
-    shortName: g.shortName ?? null,
-    region: g.region ?? null,
-    country: g.country ?? null,
-    state: g.state ?? null,
-    city: g.city ?? null,
-    latitude: g.latitude ?? null,
-    longitude: g.longitude ?? null,
-    source: g.source ?? null,
-    predictionsCount: g.predictionsCount ?? null
-  })).filter(g => g.slug);
+  // This project is intentionally powered by literal groundhogs only.
+  const groundhogs = allForecasters.filter(g => Number(g.isGroundhog) === 1);
+  if (!groundhogs.length) {
+    throw new Error("The API returned no entries marked isGroundhog=1.");
+  }
+  const groundhogSlugs = new Set(groundhogs.map(g => g.slug).filter(Boolean));
 
-  await fs.writeFile(path.join(OUT_DIR, "groundhogs.json"), JSON.stringify({ updatedAt: new Date().toISOString(), groundhogs: groundhogDir }, null, 2));
+  // Save a compact groundhog-only directory for the site.
+  const groundhogDir = groundhogs.map(g => {
+    const coordinates = parseCoordinates(g.coordinates);
+    return {
+      id: g.id ?? null,
+      slug: g.slug ?? null,
+      name: g.name ?? null,
+      shortName: g.shortname ?? g.shortName ?? null,
+      region: g.region ?? null,
+      country: g.country ?? null,
+      state: g.state ?? null,
+      city: g.city ?? null,
+      latitude: g.latitude ?? coordinates.latitude,
+      longitude: g.longitude ?? coordinates.longitude,
+      source: g.source ?? null,
+      isGroundhog: true,
+      type: g.type ?? "Groundhog",
+      active: Boolean(g.active),
+      predictionsCount: g.predictionsCount ?? null
+    };
+  }).filter(g => g.slug);
+
+  await fs.writeFile(
+    path.join(OUT_DIR, "groundhogs.json"),
+    JSON.stringify({
+      updatedAt: new Date().toISOString(),
+      groundhogsOnly: true,
+      groundhogs: groundhogDir
+    }, null, 2)
+  );
 
   // If the /groundhogs endpoint already includes predictions, use them.
   const hasPredictionsInline = groundhogs.some(g => Array.isArray(g.predictions) && g.predictions.length);
@@ -61,9 +96,10 @@ async function main() {
     for (const g of groundhogs) {
       if (!Array.isArray(g.predictions)) continue;
       for (const p of g.predictions) {
+        if (!isExplicitShadow(p.shadow)) continue;
         predictions.push({
           year: p.year,
-          shadow: !!p.shadow,
+          shadow: p.shadow === 1 || p.shadow === true,
           groundhogSlug: g.slug,
           groundhogName: g.name,
           details: p.details ?? null,
@@ -88,10 +124,11 @@ async function main() {
           const rows = Array.isArray(data.predictions) ? data.predictions : [];
           for (const r of rows) {
             const g = r.groundhog || {};
+            if (!groundhogSlugs.has(g.slug) || !isExplicitShadow(r.shadow)) continue;
             predictions.push({
               year: r.year ?? y,
-              shadow: !!r.shadow,
-              groundhogSlug: g.slug ?? null,
+              shadow: r.shadow === 1 || r.shadow === true,
+              groundhogSlug: g.slug,
               groundhogName: g.name ?? null,
               details: r.details ?? null,
               source: r.source ?? g.source ?? null
@@ -110,12 +147,20 @@ async function main() {
 
   // Keep only the fields we need.
   predictions = predictions
-    .filter(p => Number.isFinite(+p.year) && p.groundhogSlug)
+    .filter(p => Number.isFinite(+p.year)
+      && groundhogSlugs.has(p.groundhogSlug)
+      && typeof p.shadow === "boolean")
     .sort((a, b) => (a.year - b.year) || a.groundhogSlug.localeCompare(b.groundhogSlug));
 
-  console.log(`Writing ${predictions.length.toLocaleString()} predictions...`);
-  await fs.writeFile(path.join(OUT_DIR, "predictions.json"),
-    JSON.stringify({ updatedAt: new Date().toISOString(), predictions }, null, 2)
+  console.log(`Writing ${predictions.length.toLocaleString()} verified groundhog predictions...`);
+  await fs.writeFile(
+    path.join(OUT_DIR, "predictions.json"),
+    JSON.stringify({
+      updatedAt: new Date().toISOString(),
+      groundhogsOnly: true,
+      excludesMissingPredictions: true,
+      predictions
+    }, null, 2)
   );
 
   console.log("✓ done");

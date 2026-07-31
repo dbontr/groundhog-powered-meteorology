@@ -30,13 +30,14 @@ export function indexOutcomes(outcomeRows) {
   return m;
 }
 
-export function indexPredictions(predObj) {
+export function indexPredictions(predObj, allowedSlugs = null) {
   // predObj: { predictions: [{year, shadow, groundhogSlug, ...}, ...] }
   const byYear = new Map();
   for (const p of (predObj?.predictions ?? [])) {
     const year = +p.year;
     const slug = p.groundhogSlug;
-    if (!Number.isFinite(year) || !slug) continue;
+    if (!Number.isFinite(year) || !slug || typeof p.shadow !== "boolean") continue;
+    if (allowedSlugs && !allowedSlugs.has(slug)) continue;
     if (!byYear.has(year)) byYear.set(year, []);
     byYear.get(year).push(p);
   }

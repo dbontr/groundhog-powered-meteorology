@@ -100,7 +100,7 @@ test("historical climatology does not use future outcomes", () => {
   assert.equal(first.rows[0].pred, "EARLY_SPRING");
 });
 
-test("groundhog hybrid produces a walk-forward row for every scored year", () => {
+test("verified-groundhog model produces a walk-forward row for every scored year", () => {
   const predByYear = new Map();
   const outcomes = new Map();
   const labels = [false, false, true, false, true, false];
@@ -122,7 +122,7 @@ test("groundhog hybrid produces a walk-forward row for every scored year", () =>
   });
 
   assert.ok(model);
-  assert.equal(model.selectionMethod, "fixed-groundhog-hybrid");
+  assert.equal(model.selectionMethod, "verified-groundhog-reliability");
   assert.equal(model.id, GROUNDHOG_HYBRID.id);
   assert.equal(model.backtest.rows.length, labels.length);
   assert.equal(model.profileByYear.size, labels.length);
@@ -154,7 +154,7 @@ test("future labels cannot change earlier walk-forward predictions", () => {
   assert.deepEqual(beforeFuture(first), beforeFuture(second));
 });
 
-test("nowcast is composed only from reliability and crowd animal votes", () => {
+test("nowcast is composed only from verified-groundhog reliability", () => {
   const predByYear = new Map();
   const outcomes = new Map();
   for (let year = 2000; year <= 2010; year++) {
@@ -170,10 +170,10 @@ test("nowcast is composed only from reliability and crowd animal votes", () => {
   });
   const nowcast = computeDynamicSuperNowcast(predByYear, model);
 
-  assert.equal(nowcast.method, "reliability-crowd-hybrid");
-  assert.ok(Math.abs(nowcast.reliabilityShare - 0.8) < 1e-12);
-  assert.ok(Math.abs(nowcast.crowdShare - 0.2) < 1e-12);
-  assert.ok(Math.abs(nowcast.reliabilityShare + nowcast.crowdShare - 1) < 1e-12);
+  assert.equal(nowcast.method, "verified-groundhog-reliability");
+  assert.equal(nowcast.reliabilityShare, 1);
+  assert.equal(nowcast.crowdShare, 0);
+  assert.equal(nowcast.reliabilityShare + nowcast.crowdShare, 1);
   assert.equal("climatologyProbability" in nowcast, false);
   assert.equal("groundhogWeight" in nowcast, false);
 });

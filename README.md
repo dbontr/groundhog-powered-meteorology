@@ -1,16 +1,17 @@
 # Groundhog Powered Meteorology
 
-A static GitHub Pages forecast powered entirely by Groundhog Day predictions, with climatology retained only as an evaluation baseline.
+A static GitHub Pages forecast powered only by verified living groundhogs, with climatology retained strictly as an evaluation baseline.
 
 The site:
-- downloads animal predictions from the GROUNDHOG-DAY.com API
-- scores them against NOAA contiguous-U.S. February–March temperature anomalies
-- evaluates every prediction with chronological walk-forward testing
-- combines an 80% reliability-weighted animal vote with a 20% all-animal crowd vote
+- keeps only API entries marked `isGroundhog: 1`
+- rejects null and missing prediction records instead of treating them as early-spring votes
+- scores valid groundhog predictions against NOAA contiguous-U.S. February–March temperature anomalies
+- evaluates every model decision with chronological walk-forward testing
+- weights groundhogs by Wilson-confidence reliability with recent years emphasized
 - uses no weather or climatology input when producing the forecast
-- ranks animals by skill relative to climatology during the same active years
+- ranks groundhogs by skill relative to climatology during the same active years
 
-The forecast is therefore genuinely groundhog powered while the displayed climate baseline keeps its performance in context.
+The forecast is literally groundhog derived; ducks, lobsters, mascots, statues, and other non-groundhog forecasters are excluded.
 
 ## Quick start
 
@@ -35,23 +36,21 @@ Enable GitHub Pages from the `main` branch and `/docs` folder.
 
 ## Forecast design
 
-### 1. Reliability-weighted vote
+### 1. Verified-groundhog ingestion
 
-For forecast year `t`, each animal is scored only on predictions made before `t`. The primary vote uses a Wilson-confidence reliability weight with:
+The updater retains only API records where `isGroundhog` equals `1`. A prediction is accepted only when the API explicitly supplies shadow or no-shadow; null records such as “No Record” are discarded.
 
-- a four-year decay half-life
+### 2. Reliability-weighted vote
+
+For forecast year `t`, each groundhog is scored only on predictions made before `t`. The forecast uses a Wilson-confidence reliability weight with:
+
+- a three-year decay half-life
 - a 20-year maximum history window
 - at least eight prior observations
-- sample-size shrinkage
-- signed weights, so consistently below-chance animals become contrarian signals
+- stronger sample-size evidence weighting
+- signed weights, so consistently below-chance groundhogs become contrarian signals
 
-This reliability vote supplies 80% of the final probability.
-
-### 2. Full crowd vote
-
-The remaining 20% comes from the unweighted share of all animals predicting early spring. This keeps the forecast tied to the complete Groundhog Day field and makes the model less brittle when individual historical weights are noisy.
-
-When too few animals have usable histories, the model automatically falls back toward the crowd vote. Both inputs are animal predictions; climatology never enters the forecast calculation.
+The published probability comes entirely from this verified-groundhog reliability vote. If no groundhog has enough history, the fallback is the current verified-groundhog majority vote.
 
 ### 3. Walk-forward evaluation
 
@@ -64,9 +63,13 @@ The site reports:
 - balanced accuracy, so a dominant class cannot hide failure on the minority class
 - Brier score for probability quality
 - the matching 15-year climatology baseline
-- reliability-vote and crowd-vote composition
+- the number of reporting groundhogs with usable reliability histories
 
-The leaderboard shows raw accuracy and climate-relative skill. Skill uses a smoothed accuracy estimate minus the climatology accuracy over the animal's active years.
+On the current cleaned data, the 2000–2025 walk-forward result is 88.5% accuracy and 93.8% balanced accuracy. The leaderboard shows raw accuracy and climate-relative skill over each groundhog's active years.
+
+## Performance
+
+Filtering non-groundhogs and missing records reduced the prediction cache from about 430 KB to 211 KB, or from 17.0 KB to 9.1 KB when gzipped. The complete backtest and current forecast average under 1 ms on Jupiter, and browser requests now use normal HTTP caching.
 
 ## Data sources
 
@@ -86,7 +89,7 @@ This target is transparent but imperfect. It covers roughly two months, includes
 
 - `docs/` — static site and browser model
 - `docs/lib/fusion.js` — canonical forecast and evaluation implementation
-- `docs/data/` — cached predictions, animal directory, and outcomes
+- `docs/data/` — verified-groundhog predictions, groundhog directory, and outcomes
 - `scripts/` — data updates, evaluator, and build helper
 - `tests/` — Node test suite
 

@@ -11,18 +11,18 @@ const $ = (id) => document.getElementById(id);
 const TARGET_BASE = "US_CONUS_FEBMAR_MEAN_ANOM";
 const TARGET_MARCH = "US_CONUS_MAR_ANOM";
 const MIN_OBS = 20;
-const MIN_BACKTEST_GH = 20;
+const MIN_BACKTEST_GH = 13;
 const CLIMATOLOGY_WINDOW_YEARS = 15;
 const LEADERBOARD_DEFAULT_MIN_OBS = MIN_OBS;
 
 async function loadJson(url) {
-  const res = await fetch(url, { cache: "no-cache" });
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} (${url})`);
   return await res.json();
 }
 
 async function loadText(url) {
-  const res = await fetch(url, { cache: "no-cache" });
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} (${url})`);
   return await res.text();
 }
@@ -214,7 +214,16 @@ async function run() {
 
     const outcomesRows = parseCSV(outcomesText);
     const outcomes = indexOutcomes(buildOutcomeRows(outcomesRows));
-    const predByYear = indexPredictions(predObj);
+    const verifiedSlugs = new Set(
+      (groundhogDir?.groundhogs ?? [])
+        .filter(g => g?.isGroundhog === true)
+        .map(g => g.slug)
+        .filter(Boolean)
+    );
+    if (!verifiedSlugs.size) {
+      throw new Error("No API-verified groundhogs were found in the local directory.");
+    }
+    const predByYear = indexPredictions(predObj, verifiedSlugs);
 
     const leaderboardYears = Array.from(predByYear.keys())
       .filter((y) => outcomes.has(`${TARGET_BASE}:${y}`));
@@ -254,7 +263,7 @@ async function run() {
         : `Min observations: ${minObs}.`;
       const yearText = scoredYears.length ? ` Scored years: ${minYear}–${maxYear}.` : "";
       const keyText = compact ? " Key: #=Rank, Acc=Accuracy, Skill=adjusted accuracy minus climatology, Obs=Observations." : "";
-      return `Skill compares each animal with the ${CLIMATOLOGY_WINDOW_YEARS}-year climatology during the same active years. ${obsText}${yearText} The model backtest requires at least ${MIN_BACKTEST_GH} animals per year.${keyText}`;
+      return `Skill compares each verified groundhog with the ${CLIMATOLOGY_WINDOW_YEARS}-year climatology during the same active years. ${obsText}${yearText} The model backtest requires at least ${MIN_BACKTEST_GH} groundhogs per year.${keyText}`;
     };
     const updateLeaderboard = () => {
       const minObs = allowNewbies ? 1 : LEADERBOARD_DEFAULT_MIN_OBS;
@@ -311,7 +320,7 @@ async function run() {
     if (balancedAccuracy) balancedAccuracy.textContent = fmtPct(model.backtest.balancedAccuracy);
     const modelDetail = $("modelDetail");
     if (modelDetail) {
-      modelDetail.textContent = `Groundhog-only walk-forward, ${model.backtest.backtestN} years; Brier score ${model.backtest.brierScore.toFixed(3)}. Reliability vote 80%, crowd vote 20%.`;
+      modelDetail.textContent = `Verified-groundhog walk-forward, ${model.backtest.backtestN} years; Brier score ${model.backtest.brierScore.toFixed(3)}. Three-year recency decay with Wilson-confidence reliability weights.`;
     }
 
     const totalGroundhogs = countTotalGroundhogs(groundhogDir, predByYear);
@@ -343,7 +352,7 @@ async function run() {
       updateVoterDetail();
     }
 
-    $("meta").textContent = `100% groundhog powered: ${fmtPct(nowcast.reliabilityShare)} reliability-weighted vote plus ${fmtPct(nowcast.crowdShare)} all-animal crowd vote. Reliability histories available for ${nowcast.weightedUsed} of ${nowcast.totalPreds} animals.`;
+    $("meta").textContent = `100% verified-groundhog powered. Wilson-confidence reliability histories are available for ${nowcast.weightedUsed} of ${nowcast.totalPreds} reporting groundhogs; non-groundhog forecasters and missing records are excluded.`;
 
     if (!isSample) setStatus("");
   } catch (err) {
