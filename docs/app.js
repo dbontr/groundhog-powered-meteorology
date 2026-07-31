@@ -311,7 +311,7 @@ async function run() {
     if (balancedAccuracy) balancedAccuracy.textContent = fmtPct(model.backtest.balancedAccuracy);
     const modelDetail = $("modelDetail");
     if (modelDetail) {
-      modelDetail.textContent = `Nested walk-forward, ${model.backtest.backtestN} years; Brier score ${model.backtest.brierScore.toFixed(3)}.`;
+      modelDetail.textContent = `Groundhog-only walk-forward, ${model.backtest.backtestN} years; Brier score ${model.backtest.brierScore.toFixed(3)}. Reliability vote 80%, crowd vote 20%.`;
     }
 
     const totalGroundhogs = countTotalGroundhogs(groundhogDir, predByYear);
@@ -343,8 +343,7 @@ async function run() {
       updateVoterDetail();
     }
 
-    const contribution = fmtPct(nowcast.groundhogWeight ?? 0);
-    $("meta").textContent = `Groundhog contribution: ${contribution}. The climate guard increases animal weight only after prior-year Brier-score improvement. Active profile: ${nowcast.profileId}.`;
+    $("meta").textContent = `100% groundhog powered: ${fmtPct(nowcast.reliabilityShare)} reliability-weighted vote plus ${fmtPct(nowcast.crowdShare)} all-animal crowd vote. Reliability histories available for ${nowcast.weightedUsed} of ${nowcast.totalPreds} animals.`;
 
     if (!isSample) setStatus("");
   } catch (err) {

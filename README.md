@@ -1,16 +1,16 @@
 # Groundhog Powered Meteorology
 
-A static GitHub Pages forecast that combines Groundhog Day predictions with an explicit climate baseline.
+A static GitHub Pages forecast powered entirely by Groundhog Day predictions, with climatology retained only as an evaluation baseline.
 
 The site:
 - downloads animal predictions from the GROUNDHOG-DAY.com API
 - scores them against NOAA contiguous-U.S. February–March temperature anomalies
-- evaluates every model decision with chronological walk-forward testing
-- starts from a 15-year rolling climatology probability
-- gives the groundhog layer weight only after it improves prior-year Brier score
+- evaluates every prediction with chronological walk-forward testing
+- combines an 80% reliability-weighted animal vote with a 20% all-animal crowd vote
+- uses no weather or climatology input when producing the forecast
 - ranks animals by skill relative to climatology during the same active years
 
-This design prevents a large collection of correlated animals from appearing more predictive than a simple recent-climate baseline.
+The forecast is therefore genuinely groundhog powered while the displayed climate baseline keeps its performance in context.
 
 ## Quick start
 
@@ -35,28 +35,27 @@ Enable GitHub Pages from the `main` branch and `/docs` folder.
 
 ## Forecast design
 
-### 1. Recent-climate prior
+### 1. Reliability-weighted vote
 
-For forecast year `t`, the model estimates the early-spring probability from only the previous 15 outcome years. A Beta(1,1) prior prevents probabilities of exactly zero or one.
+For forecast year `t`, each animal is scored only on predictions made before `t`. The primary vote uses a Wilson-confidence reliability weight with:
 
-### 2. Groundhog reliability
+- a four-year decay half-life
+- a 20-year maximum history window
+- at least eight prior observations
+- sample-size shrinkage
+- signed weights, so consistently below-chance animals become contrarian signals
 
-Each animal receives an empirical reliability signal from predictions before `t`. The model combines Bayesian accuracy, recency-weighted accuracy, a rolling window, stability, and sample-size evidence.
+This reliability vote supplies 80% of the final probability.
 
-Below-chance animals can receive negative weights, which correctly treats them as contrarian signals. Animals without enough evidence are shrunk or excluded.
+### 2. Full crowd vote
 
-### 3. Climate guard
+The remaining 20% comes from the unweighted share of all animals predicting early spring. This keeps the forecast tied to the complete Groundhog Day field and makes the model less brittle when individual historical weights are noisy.
 
-The groundhog layer is compared with climatology using prior-year Brier score. Its contribution is zero unless it has demonstrated incremental probabilistic skill. Evidence shrinkage prevents a short lucky streak from receiving a large weight.
+When too few animals have usable histories, the model automatically falls back toward the crowd vote. Both inputs are animal predictions; climatology never enters the forecast calculation.
 
-### 4. Nested walk-forward selection
+### 3. Walk-forward evaluation
 
-For each historical test year:
-1. every feature uses outcomes strictly before that year
-2. the tuning profile is selected using only earlier walk-forward predictions
-3. the selected profile predicts the held-out year
-
-Changing a future outcome therefore cannot change an earlier prediction. Tests enforce this property.
+For every historical test year, all reliability statistics are trained using years strictly before that year. The held-out year is then predicted once. Changing a future outcome therefore cannot alter an earlier prediction, and tests enforce that property.
 
 ## Reported metrics
 
@@ -65,7 +64,7 @@ The site reports:
 - balanced accuracy, so a dominant class cannot hide failure on the minority class
 - Brier score for probability quality
 - the matching 15-year climatology baseline
-- current groundhog contribution
+- reliability-vote and crowd-vote composition
 
 The leaderboard shows raw accuracy and climate-relative skill. Skill uses a smoothed accuracy estimate minus the climatology accuracy over the animal's active years.
 

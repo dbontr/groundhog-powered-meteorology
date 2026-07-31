@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import {
   buildDynamicSuperModel,
   buildFusionWeights,
+  computeDynamicSuperNowcast,
   computeHistoricalClimatologyBacktest,
+  GROUNDHOG_HYBRID,
   majorityVote,
   signalFromPrediction
 } from "../docs/lib/fusion.js";
@@ -98,7 +100,7 @@ test("historical climatology does not use future outcomes", () => {
   assert.equal(first.rows[0].pred, "EARLY_SPRING");
 });
 
-test("walk-forward model exposes year-specific profile choices", () => {
+test("groundhog hybrid produces a walk-forward row for every scored year", () => {
   const predByYear = new Map();
   const outcomes = new Map();
   const labels = [false, false, true, false, true, false];
@@ -120,10 +122,12 @@ test("walk-forward model exposes year-specific profile choices", () => {
   });
 
   assert.ok(model);
+  assert.equal(model.selectionMethod, "fixed-groundhog-hybrid");
+  assert.equal(model.id, GROUNDHOG_HYBRID.id);
   assert.equal(model.backtest.rows.length, labels.length);
   assert.equal(model.profileByYear.size, labels.length);
   for (const row of model.backtest.rows) {
-    assert.equal(model.profileByYear.has(row.year), true);
+    assert.equal(row.profileId, GROUNDHOG_HYBRID.id);
   }
   assert.ok(Number.isFinite(model.backtest.brierScore));
 });
@@ -137,17 +141,39 @@ test("future labels cannot change earlier walk-forward predictions", () => {
   }
 
   const first = buildDynamicSuperModel(predByYear, outcomes, TARGET, {
-    minGroundhogs: 1,
-    minBlendYears: 2
+    minGroundhogs: 1
   });
   outcomes.set(`${TARGET}:2010`, "LONG_WINTER");
   const second = buildDynamicSuperModel(predByYear, outcomes, TARGET, {
-    minGroundhogs: 1,
-    minBlendYears: 2
+    minGroundhogs: 1
   });
 
   const beforeFuture = (model) => model.backtest.rows
     .filter((row) => row.year < 2010)
     .map(({ year, pred, probability, profileId }) => ({ year, pred, probability, profileId }));
   assert.deepEqual(beforeFuture(first), beforeFuture(second));
+});
+
+test("nowcast is composed only from reliability and crowd animal votes", () => {
+  const predByYear = new Map();
+  const outcomes = new Map();
+  for (let year = 2000; year <= 2010; year++) {
+    predByYear.set(year, [
+      prediction(year, "alpha", false),
+      prediction(year, "beta", true)
+    ]);
+    if (year < 2010) outcomes.set(`${TARGET}:${year}`, "EARLY_SPRING");
+  }
+
+  const model = buildDynamicSuperModel(predByYear, outcomes, TARGET, {
+    minGroundhogs: 1
+  });
+  const nowcast = computeDynamicSuperNowcast(predByYear, model);
+
+  assert.equal(nowcast.method, "reliability-crowd-hybrid");
+  assert.ok(Math.abs(nowcast.reliabilityShare - 0.8) < 1e-12);
+  assert.ok(Math.abs(nowcast.crowdShare - 0.2) < 1e-12);
+  assert.ok(Math.abs(nowcast.reliabilityShare + nowcast.crowdShare - 1) < 1e-12);
+  assert.equal("climatologyProbability" in nowcast, false);
+  assert.equal("groundhogWeight" in nowcast, false);
 });

@@ -28,7 +28,7 @@ const baseline = computeHistoricalClimatologyBacktest(
   outcomes,
   TARGET,
   model.featureCache.scoredYears,
-  { windowYears: model.guardOpts.climatologyWindowYears }
+  { windowYears: 15 }
 );
 const nowcast = computeDynamicSuperNowcast(predByYear, model);
 
@@ -44,6 +44,8 @@ console.log(`Climatology Brier score: ${baseline.brierScore.toFixed(3)}`);
 if (nowcast) {
   console.log(`Forecast ${nowcast.latestYear}: ${nowcast.pred || "NO CALL"}`);
   console.log(`Early-spring probability: ${pct(nowcast.probability)}`);
-  console.log(`Groundhog contribution: ${pct(nowcast.groundhogWeight)}`);
+  console.log(`Reliability-weighted share: ${pct(nowcast.reliabilityShare)}`);
+  console.log(`Crowd-vote share: ${pct(nowcast.crowdShare)}`);
+  console.log(`Reliability histories: ${nowcast.weightedUsed}/${nowcast.totalPreds}`);
   console.log(`Profile: ${nowcast.profileId}`);
 }
