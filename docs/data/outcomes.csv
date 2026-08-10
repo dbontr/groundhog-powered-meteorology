@@ -1,6 +1,6 @@
 # Outcomes definition: CONUS mean(Feb_anomaly, Mar_anomaly) relative to 1901–2000 baseline.
 # outcome  (binary)  = EARLY_SPRING if mean_anom > 0 else LONG_WINTER
-# winter_bucket (only when outcome=LONG_WINTER) = EARLY_WINTER if mean_anom <= -1.0F else NORMAL_WINTER
+# winter_bucket (only when outcome=LONG_WINTER) = EARLY_WINTER if mean_anom <= -1F else NORMAL_WINTER
 year,target,feb_anom,mar_anom,mean_anom,outcome,winter_bucket
 1887,US_CONUS_FEBMAR_MEAN_ANOM,,,,,
 1888,US_CONUS_FEBMAR_MEAN_ANOM,,,,,
@@ -140,4 +140,5 @@ year,target,feb_anom,mar_anom,mean_anom,outcome,winter_bucket
 2022,US_CONUS_FEBMAR_MEAN_ANOM,-0.160,2.580,1.210,EARLY_SPRING,
 2023,US_CONUS_FEBMAR_MEAN_ANOM,2.520,-0.970,0.775,EARLY_SPRING,
 2024,US_CONUS_FEBMAR_MEAN_ANOM,6.960,3.440,5.200,EARLY_SPRING,
-2025,US_CONUS_FEBMAR_MEAN_ANOM,0.950,5.370,3.160,EARLY_SPRING,
+2025,US_CONUS_FEBMAR_MEAN_ANOM,0.950,5.350,3.150,EARLY_SPRING,
+2026,US_CONUS_FEBMAR_MEAN_ANOM,6.480,9.360,7.920,EARLY_SPRING,
